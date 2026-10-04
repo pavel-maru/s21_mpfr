@@ -32,6 +32,7 @@ void s21_mpf_clear(s21_mpf_t *x) {
   x->kind = S21_MPF_ZERO;
 }
 
+/* Смена точности. TODO: правильное округление при уменьшении prec. */
 void s21_mpf_set_prec(s21_mpf_t *x, uint32_t prec) {
   if (prec < 2) prec = 2;
   if (prec == x->prec) return;
@@ -802,6 +803,21 @@ int s21_mpf_div(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
 }
 
 /* ============================================================
+   Деление на маленькое целое (для рядов Тейлора)
+   ============================================================ */
+
+static void s21_mpf_div_small(s21_mpf_t *x, uint32_t n) {
+  size_t count = s21_mpf_limbs_for_prec(x->prec);
+  uint64_t rem = 0;
+  for (int i = (int)count - 1; i >= 0; i--) {
+    unsigned __int128 v = ((unsigned __int128)rem << 64) | x->limbs[i];
+    x->limbs[i] = (uint64_t)(v / (uint32_t)n);
+    rem = (uint64_t)(v % (uint32_t)n);
+  }
+  s21_mpf_normalize(x);
+}
+
+/* ============================================================
    Квадратный корень
    ============================================================ */
 
@@ -904,25 +920,16 @@ int s21_mpf_exp(s21_mpf_t *res, const s21_mpf_t *x) {
   s21_mpf_set_ui(&sum, 1);
   s21_mpf_set_ui(&term, 1);
 
-  size_t count = s21_mpf_limbs_for_prec(work_prec);
-
   for (int n = 1; n < 300; n++) {
     /* term *= y */
     s21_mpf_mul(&term, &term, &y);
 
-    /* term /= n (деление на маленькое целое) */
-    uint64_t rem = 0;
-    for (int i = (int)count - 1; i >= 0; i--) {
-      unsigned __int128 v = ((unsigned __int128)rem << 64) | term.limbs[i];
-      term.limbs[i] = (uint64_t)(v / (uint32_t)n);
-      rem = (uint64_t)(v % (uint32_t)n);
-    }
-    s21_mpf_normalize(&term);
+    /* term /= n */
+    s21_mpf_div_small(&term, (uint32_t)n);
 
     /* sum += term */
     s21_mpf_add(&sum, &sum, &term);
 
-    /* Сходимость: |term| < |sum| * 2^-work_prec */
     if (term.kind == S21_MPF_ZERO) break;
     if (term.exp < sum.exp - (int64_t)work_prec - 4) break;
   }
@@ -938,6 +945,130 @@ int s21_mpf_exp(s21_mpf_t *res, const s21_mpf_t *x) {
   s21_mpf_clear(&y);
   s21_mpf_clear(&sum);
   s21_mpf_clear(&term);
+  return 0;
+}
+
+/* ============================================================
+   Ряд atanh(z) = z + z^3/3 + z^5/5 + ...
+   Сходится быстро при |z| <= 1/3.
+   ============================================================ */
+
+static void s21_mpf_atanh_series(s21_mpf_t *out, const s21_mpf_t *z,
+                                  uint32_t work_prec) {
+  s21_mpf_t z2, term, sum, tmp;
+  s21_mpf_init2(&z2, work_prec);
+  s21_mpf_init2(&term, work_prec);
+  s21_mpf_init2(&sum, work_prec);
+  s21_mpf_init2(&tmp, work_prec);
+
+  s21_mpf_mul(&z2, z, z);
+  s21_mpf_set(&term, z);
+  s21_mpf_set(&sum, z);
+
+  for (int n = 3; n < 500; n += 2) {
+    s21_mpf_mul(&term, &term, &z2);
+    s21_mpf_set(&tmp, &term);
+    s21_mpf_div_small(&tmp, (uint32_t)n);
+    s21_mpf_add(&sum, &sum, &tmp);
+
+    if (term.kind == S21_MPF_ZERO) break;
+    if (term.exp < sum.exp - (int64_t)work_prec - 4) break;
+  }
+
+  s21_mpf_set(out, &sum);
+  s21_mpf_clear(&z2);
+  s21_mpf_clear(&term);
+  s21_mpf_clear(&sum);
+  s21_mpf_clear(&tmp);
+}
+
+/* ============================================================
+   Логарифм
+   ============================================================ */
+
+int s21_mpf_log(s21_mpf_t *res, const s21_mpf_t *x) {
+  if (res == NULL || x == NULL) return -1;
+
+  if (x->kind == S21_MPF_NAN) { s21_mpf_set_nan(res); return 0; }
+  if (x->kind == S21_MPF_ZERO) { s21_mpf_set_inf(res, 1); return 0; }
+  if (x->sign == 1) { s21_mpf_set_nan(res); return 0; }
+  if (x->kind == S21_MPF_INF) { s21_mpf_set_inf(res, 0); return 0; }
+
+  uint32_t work_prec = res->prec + 64;
+
+  s21_mpf_t a, y, z, num, den, log_y, ln2, k_ln2, result, one, three, kk;
+  s21_mpf_init2(&a, work_prec);
+  s21_mpf_init2(&y, work_prec);
+  s21_mpf_init2(&z, work_prec);
+  s21_mpf_init2(&num, work_prec);
+  s21_mpf_init2(&den, work_prec);
+  s21_mpf_init2(&log_y, work_prec);
+  s21_mpf_init2(&ln2, work_prec);
+  s21_mpf_init2(&k_ln2, work_prec);
+  s21_mpf_init2(&result, work_prec);
+  s21_mpf_init2(&one, work_prec);
+  s21_mpf_init2(&three, work_prec);
+  s21_mpf_init2(&kk, work_prec);
+
+  s21_mpf_set(&a, x);
+  s21_mpf_set_ui(&one, 1);
+
+  /* log(1) = 0 */
+  if (s21_mpf_cmp(&a, &one) == 0) {
+    s21_mpf_set_zero(res, 0);
+    goto cleanup;
+  }
+
+  /* Приведение: y = a / 2^k, y ∈ [1, 2), k = exp_a - 1.
+     В формате mpf y ∈ [2^(exp-1), 2^exp). Хотим y ∈ [1, 2) → exp = 1. */
+  int64_t k = a.exp - 1;
+  s21_mpf_set(&y, &a);
+  y.exp = 1;
+  s21_mpf_normalize(&y);
+
+  /* z = (y - 1) / (y + 1) */
+  s21_mpf_sub(&num, &y, &one);
+  s21_mpf_add(&den, &y, &one);
+  s21_mpf_div(&z, &num, &den);
+
+  /* log(y) = 2 * atanh(z) */
+  s21_mpf_atanh_series(&log_y, &z, work_prec);
+  log_y.exp += 1;
+  s21_mpf_normalize(&log_y);
+
+  if (k == 0) {
+    s21_mpf_set(res, &log_y);
+    goto cleanup;
+  }
+
+  /* ln2 = 2 * atanh(1/3) */
+  s21_mpf_set_ui(&three, 3);
+  s21_mpf_div(&z, &one, &three);
+  s21_mpf_atanh_series(&ln2, &z, work_prec);
+  ln2.exp += 1;
+  s21_mpf_normalize(&ln2);
+
+  /* k_ln2 = k * ln2 */
+  s21_mpf_set_si(&kk, (long)k);
+  s21_mpf_mul(&k_ln2, &kk, &ln2);
+
+  /* result = log_y + k_ln2 */
+  s21_mpf_add(&result, &log_y, &k_ln2);
+  s21_mpf_set(res, &result);
+
+cleanup:
+  s21_mpf_clear(&a);
+  s21_mpf_clear(&y);
+  s21_mpf_clear(&z);
+  s21_mpf_clear(&num);
+  s21_mpf_clear(&den);
+  s21_mpf_clear(&log_y);
+  s21_mpf_clear(&ln2);
+  s21_mpf_clear(&k_ln2);
+  s21_mpf_clear(&result);
+  s21_mpf_clear(&one);
+  s21_mpf_clear(&three);
+  s21_mpf_clear(&kk);
   return 0;
 }
 

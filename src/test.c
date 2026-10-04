@@ -689,6 +689,87 @@ static void test_exp(void) {
   printf("[ok] exp\n");
 }
 
+static void test_log(void) {
+  s21_mpf_t a, l, expected, diff, threshold;
+  s21_mpf_init2(&a, 256);
+  s21_mpf_init2(&l, 256);
+  s21_mpf_init2(&expected, 256);
+  s21_mpf_init2(&diff, 256);
+  s21_mpf_init2(&threshold, 256);
+
+  /* log(1) = 0 */
+  s21_mpf_set_ui(&a, 1);
+  s21_mpf_log(&l, &a);
+  ASSERT(s21_mpf_is_zero(&l), "log(1) = 0");
+
+  /* log(e) ≈ 1 — проверяем через exp(1) */
+  s21_mpf_set_ui(&a, 1);
+  s21_mpf_exp(&a, &a);        /* a = e */
+  s21_mpf_log(&l, &a);        /* l = log(e) */
+  s21_mpf_set_ui(&expected, 1);
+  s21_mpf_sub(&diff, &l, &expected);
+  s21_mpf_abs(&diff, &diff);
+  s21_mpf_set_d(&threshold, 1e-14);
+  ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "log(e) ≈ 1");
+
+  /* log(2) ≈ 0.693147180559945 */
+  s21_mpf_set_ui(&a, 2);
+  s21_mpf_log(&l, &a);
+  s21_mpf_set_d(&expected, 0.693147180559945);
+  s21_mpf_sub(&diff, &l, &expected);
+  s21_mpf_abs(&diff, &diff);
+  ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "log(2) ≈ ln2");
+
+  /* log(10) ≈ 2.302585092994046 */
+  s21_mpf_set_ui(&a, 10);
+  s21_mpf_log(&l, &a);
+  s21_mpf_set_d(&expected, 2.302585092994046);
+  s21_mpf_sub(&diff, &l, &expected);
+  s21_mpf_abs(&diff, &diff);
+  s21_mpf_set_d(&threshold, 1e-13);
+  ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "log(10) ≈ 2.3026");
+
+  /* log(0.5) ≈ -0.693147180559945 */
+  s21_mpf_set_d(&a, 0.5);
+  s21_mpf_log(&l, &a);
+  s21_mpf_set_d(&expected, -0.693147180559945);
+  s21_mpf_sub(&diff, &l, &expected);
+  s21_mpf_abs(&diff, &diff);
+  s21_mpf_set_d(&threshold, 1e-14);
+  ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "log(0.5) ≈ -ln2");
+
+  /* log(0) = -inf */
+  s21_mpf_set_ui(&a, 0);
+  s21_mpf_log(&l, &a);
+  ASSERT(s21_mpf_is_inf(&l) && l.sign == 1, "log(0) = -inf");
+
+  /* log(-1) = NaN */
+  s21_mpf_set_si(&a, -1);
+  s21_mpf_log(&l, &a);
+  ASSERT(s21_mpf_is_nan(&l), "log(-1) = NaN");
+
+  /* log(NaN) = NaN */
+  s21_mpf_set_nan(&a);
+  s21_mpf_log(&l, &a);
+  ASSERT(s21_mpf_is_nan(&l), "log(NaN) = NaN");
+
+  /* log(+inf) = +inf */
+  s21_mpf_set_inf(&a, 0);
+  s21_mpf_log(&l, &a);
+  ASSERT(s21_mpf_is_inf(&l) && l.sign == 0, "log(+inf) = +inf");
+
+  /* NULL checks */
+  ASSERT(s21_mpf_log(NULL, &a) == -1, "log: NULL res");
+  ASSERT(s21_mpf_log(&l, NULL) == -1, "log: NULL x");
+
+  s21_mpf_clear(&a);
+  s21_mpf_clear(&l);
+  s21_mpf_clear(&expected);
+  s21_mpf_clear(&diff);
+  s21_mpf_clear(&threshold);
+  printf("[ok] log\n");
+}
+
 int main(void) {
   printf("=== s21_mpf: базовые тесты ===\n");
   test_init_clear();
@@ -705,6 +786,7 @@ int main(void) {
   test_bit_utils();
   test_sqrt();
   test_exp();
+  test_log();
   printf("=== Все тесты прошли ===\n");
   return 0;
 }
