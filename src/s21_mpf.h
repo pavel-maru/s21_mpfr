@@ -20,7 +20,12 @@ typedef enum {
   S21_MPF_NAN
 } s21_mpf_kind_t;
 
-/* Число произвольной точности */
+/* Число произвольной точности.
+   Инварианты для NORMAL:
+     - limbs — little-endian массив, limbs[0] — младшие 64 бита
+     - старший значащий бит находится на позиции (prec - 1)
+     - x = (-1)^sign * mant * 2^(exp - prec), где mant = sum(limbs[i] * 2^(64*i))
+     - биты выше prec нулевые */
 typedef struct {
   uint64_t *limbs;   /* мантисса, little-endian */
   int64_t   exp;     /* x = mant * 2^(exp - prec) */
@@ -53,11 +58,17 @@ void s21_mpf_set(s21_mpf_t *dst, const s21_mpf_t *src);
 
 /* ============== Утилиты ============== */
 
-int  s21_mpf_is_nan(const s21_mpf_t *x);
-int  s21_mpf_is_inf(const s21_mpf_t *x);
-int  s21_mpf_is_zero(const s21_mpf_t *x);
-int  s21_mpf_sign(const s21_mpf_t *x);      /* -1, 0, +1 */
+int      s21_mpf_is_nan(const s21_mpf_t *x);
+int      s21_mpf_is_inf(const s21_mpf_t *x);
+int      s21_mpf_is_zero(const s21_mpf_t *x);
+int      s21_mpf_is_normal(const s21_mpf_t *x);
+int      s21_mpf_sign(const s21_mpf_t *x);
 uint32_t s21_mpf_get_prec(const s21_mpf_t *x);
+
+/* Низкоуровневые операции над битами мантиссы */
+int  s21_mpf_get_bit(const s21_mpf_t *x, uint32_t pos);  /* 0 или 1 */
+int  s21_mpf_msb(const s21_mpf_t *x);                    /* -1 если всё нулевое */
+int  s21_mpf_lsb(const s21_mpf_t *x);                    /* -1 если всё нулевое */
 
 /* Печать: шестнадцатеричное представление мантиссы и экспоненты */
 void s21_mpf_print(const s21_mpf_t *x);
