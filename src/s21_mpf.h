@@ -54,7 +54,13 @@ void s21_mpf_set_inf(s21_mpf_t *x, int sign);
 void s21_mpf_set_ui(s21_mpf_t *x, unsigned long v);
 void s21_mpf_set_si(s21_mpf_t *x, long v);
 void s21_mpf_set_d(s21_mpf_t *x, double v);
+
+/* Присваивание по умолчанию (RNDN при смене точности). */
 void s21_mpf_set(s21_mpf_t *dst, const s21_mpf_t *src);
+
+/* Присваивание с указанным режимом округления при смене точности.
+   Всегда возвращает 0 (или -1 при NULL). */
+int s21_mpf_set_round(s21_mpf_t *dst, const s21_mpf_t *src, s21_mpf_rnd_t rnd);
 
 /* ============== Утилиты ============== */
 
@@ -84,28 +90,23 @@ int s21_mpf_integer_p(const s21_mpf_t *x);
 
 /* ============== Арифметика ============== */
 
-/* res = x + y. Все три должны иметь одинаковую точность. */
 int s21_mpf_add(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y);
 int s21_mpf_sub(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y);
 int s21_mpf_mul(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y);
 int s21_mpf_div(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y);
 
-/* res = -x, res = |x| */
 void s21_mpf_neg(s21_mpf_t *res, const s21_mpf_t *x);
 void s21_mpf_abs(s21_mpf_t *res, const s21_mpf_t *x);
-
-/* Нормализация (обычно вызывается автоматически) */
 void s21_mpf_normalize(s21_mpf_t *x);
 
 /* ============== Элементарные функции ============== */
 
-int s21_mpf_sqrt(s21_mpf_t *res, const s21_mpf_t *x);   /* x >= 0 */
+int s21_mpf_sqrt(s21_mpf_t *res, const s21_mpf_t *x);
 int s21_mpf_exp(s21_mpf_t *res, const s21_mpf_t *x);
-int s21_mpf_log(s21_mpf_t *res, const s21_mpf_t *x);    /* x > 0 */
+int s21_mpf_log(s21_mpf_t *res, const s21_mpf_t *x);
 
 /* ============== Константы ============== */
 
-/* res = π с точностью res->prec */
 int s21_mpf_pi(s21_mpf_t *res);
 
 /* ============== Тригонометрия: прямые ============== */
@@ -117,8 +118,8 @@ int s21_mpf_tan(s21_mpf_t *res, const s21_mpf_t *x);
 /* ============== Тригонометрия: обратные ============== */
 
 int s21_mpf_atan(s21_mpf_t *res, const s21_mpf_t *x);
-int s21_mpf_asin(s21_mpf_t *res, const s21_mpf_t *x);   /* |x| <= 1 */
-int s21_mpf_acos(s21_mpf_t *res, const s21_mpf_t *x);   /* |x| <= 1 */
+int s21_mpf_asin(s21_mpf_t *res, const s21_mpf_t *x);
+int s21_mpf_acos(s21_mpf_t *res, const s21_mpf_t *x);
 
 /* ============== Печать ============== */
 

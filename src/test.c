@@ -434,33 +434,27 @@ static void test_null_checks(void) {
   s21_mpf_set_ui(&a, 5);
   s21_mpf_set_ui(&b, 3);
 
-  /* add */
   ASSERT(s21_mpf_add(NULL, &a, &b) == -1, "add: NULL res");
   ASSERT(s21_mpf_add(&c, NULL, &b) == -1, "add: NULL x");
   ASSERT(s21_mpf_add(&c, &a, NULL) == -1, "add: NULL y");
 
-  /* sub */
   ASSERT(s21_mpf_sub(NULL, &a, &b) == -1, "sub: NULL res");
   ASSERT(s21_mpf_sub(&c, NULL, &b) == -1, "sub: NULL x");
   ASSERT(s21_mpf_sub(&c, &a, NULL) == -1, "sub: NULL y");
 
-  /* mul */
   ASSERT(s21_mpf_mul(NULL, &a, &b) == -1, "mul: NULL res");
   ASSERT(s21_mpf_mul(&c, NULL, &b) == -1, "mul: NULL x");
   ASSERT(s21_mpf_mul(&c, &a, NULL) == -1, "mul: NULL y");
 
-  /* div */
   ASSERT(s21_mpf_div(NULL, &a, &b) == -1, "div: NULL res");
   ASSERT(s21_mpf_div(&c, NULL, &b) == -1, "div: NULL x");
   ASSERT(s21_mpf_div(&c, &a, NULL) == -1, "div: NULL y");
 
-  /* neg / abs — void, но не должны падать */
   s21_mpf_neg(NULL, &a);
   s21_mpf_neg(&c, NULL);
   s21_mpf_abs(NULL, &a);
   s21_mpf_abs(&c, NULL);
 
-  /* Разные точности — тоже -1 */
   s21_mpf_t d;
   s21_mpf_init2(&d, 128);
   s21_mpf_set_ui(&d, 7);
@@ -479,7 +473,6 @@ static void test_bit_utils(void) {
   s21_mpf_init2(&x, 128);
   s21_mpf_set_ui(&x, 1);
 
-  /* set_bit / get_bit round-trip */
   for (uint32_t pos = 0; pos < 128; pos += 17) {
     s21_mpf_set_bit(&x, pos, 1);
     ASSERT(s21_mpf_get_bit(&x, pos) == 1, "set_bit 1 -> get_bit 1");
@@ -487,13 +480,11 @@ static void test_bit_utils(void) {
     ASSERT(s21_mpf_get_bit(&x, pos) == 0, "set_bit 0 -> get_bit 0");
   }
 
-  /* Бит за пределами prec игнорируется */
   s21_mpf_set_bit(&x, 200, 1);
   ASSERT(s21_mpf_get_bit(&x, 200) == 0, "bit above prec ignored");
 
   s21_mpf_clear(&x);
 
-  /* shift_left_into */
   {
     uint64_t src[2] = {0x1ULL, 0};
     uint64_t dst[2] = {0};
@@ -528,63 +519,52 @@ static void test_sqrt(void) {
   s21_mpf_init2(&s, 256);
   s21_mpf_init2(&expected, 256);
 
-  /* sqrt(4) = 2 */
   s21_mpf_set_ui(&a, 4);
   s21_mpf_sqrt(&s, &a);
   s21_mpf_set_ui(&expected, 2);
   ASSERT(s21_mpf_cmp(&s, &expected) == 0, "sqrt(4) = 2");
 
-  /* sqrt(9) = 3 */
   s21_mpf_set_ui(&a, 9);
   s21_mpf_sqrt(&s, &a);
   s21_mpf_set_ui(&expected, 3);
   ASSERT(s21_mpf_cmp(&s, &expected) == 0, "sqrt(9) = 3");
 
-  /* sqrt(16) = 4 */
   s21_mpf_set_ui(&a, 16);
   s21_mpf_sqrt(&s, &a);
   s21_mpf_set_ui(&expected, 4);
   ASSERT(s21_mpf_cmp(&s, &expected) == 0, "sqrt(16) = 4");
 
-  /* sqrt(1000000) = 1000 */
   s21_mpf_set_ui(&a, 1000000);
   s21_mpf_sqrt(&s, &a);
   s21_mpf_set_ui(&expected, 1000);
   ASSERT(s21_mpf_cmp(&s, &expected) == 0, "sqrt(1e6) = 1000");
 
-  /* sqrt(144) = 12 */
   s21_mpf_set_ui(&a, 144);
   s21_mpf_sqrt(&s, &a);
   s21_mpf_set_ui(&expected, 12);
   ASSERT(s21_mpf_cmp(&s, &expected) == 0, "sqrt(144) = 12");
 
-  /* sqrt(1) = 1 */
   s21_mpf_set_ui(&a, 1);
   s21_mpf_sqrt(&s, &a);
   s21_mpf_set_ui(&expected, 1);
   ASSERT(s21_mpf_cmp(&s, &expected) == 0, "sqrt(1) = 1");
 
-  /* sqrt(0) = 0 */
   s21_mpf_set_ui(&a, 0);
   s21_mpf_sqrt(&s, &a);
   ASSERT(s21_mpf_is_zero(&s), "sqrt(0) = 0");
 
-  /* sqrt(-1) = NaN */
   s21_mpf_set_si(&a, -1);
   s21_mpf_sqrt(&s, &a);
   ASSERT(s21_mpf_is_nan(&s), "sqrt(-1) = NaN");
 
-  /* sqrt(+inf) = +inf */
   s21_mpf_set_inf(&a, 0);
   s21_mpf_sqrt(&s, &a);
   ASSERT(s21_mpf_is_inf(&s) && s.sign == 0, "sqrt(+inf) = +inf");
 
-  /* sqrt(NaN) = NaN */
   s21_mpf_set_nan(&a);
   s21_mpf_sqrt(&s, &a);
   ASSERT(s21_mpf_is_nan(&s), "sqrt(NaN) = NaN");
 
-  /* sqrt(2) — иррациональное. Проверяем, что s*s ≈ 2 */
   s21_mpf_set_ui(&a, 2);
   s21_mpf_sqrt(&s, &a);
   s21_mpf_t sq;
@@ -603,7 +583,6 @@ static void test_sqrt(void) {
   s21_mpf_clear(&threshold);
   s21_mpf_clear(&sq);
 
-  /* NULL checks */
   ASSERT(s21_mpf_sqrt(NULL, &a) == -1, "sqrt: NULL res");
   ASSERT(s21_mpf_sqrt(&s, NULL) == -1, "sqrt: NULL x");
 
@@ -621,13 +600,11 @@ static void test_exp(void) {
   s21_mpf_init2(&diff, 256);
   s21_mpf_init2(&threshold, 256);
 
-  /* exp(0) = 1 */
   s21_mpf_set_ui(&a, 0);
   s21_mpf_exp(&e, &a);
   s21_mpf_set_ui(&expected, 1);
   ASSERT(s21_mpf_cmp(&e, &expected) == 0, "exp(0) = 1");
 
-  /* exp(1) ≈ e ≈ 2.718281828459045 */
   s21_mpf_set_ui(&a, 1);
   s21_mpf_exp(&e, &a);
   s21_mpf_set_d(&expected, 2.718281828459045);
@@ -636,7 +613,6 @@ static void test_exp(void) {
   s21_mpf_set_d(&threshold, 1e-14);
   ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "exp(1) ≈ e");
 
-  /* exp(-1) ≈ 0.367879441171442 */
   s21_mpf_set_si(&a, -1);
   s21_mpf_exp(&e, &a);
   s21_mpf_set_d(&expected, 0.367879441171442);
@@ -644,7 +620,6 @@ static void test_exp(void) {
   s21_mpf_abs(&diff, &diff);
   ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "exp(-1) ≈ 1/e");
 
-  /* exp(2) ≈ 7.389056098930650 */
   s21_mpf_set_ui(&a, 2);
   s21_mpf_exp(&e, &a);
   s21_mpf_set_d(&expected, 7.389056098930650);
@@ -653,7 +628,6 @@ static void test_exp(void) {
   s21_mpf_set_d(&threshold, 1e-13);
   ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "exp(2) ≈ 7.389");
 
-  /* exp(10) ≈ 22026.465794806718 */
   s21_mpf_set_ui(&a, 10);
   s21_mpf_exp(&e, &a);
   s21_mpf_set_d(&expected, 22026.465794806718);
@@ -662,22 +636,18 @@ static void test_exp(void) {
   s21_mpf_set_d(&threshold, 1e-10);
   ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "exp(10) ≈ 22026.5");
 
-  /* exp(NaN) = NaN */
   s21_mpf_set_nan(&a);
   s21_mpf_exp(&e, &a);
   ASSERT(s21_mpf_is_nan(&e), "exp(NaN) = NaN");
 
-  /* exp(+inf) = +inf */
   s21_mpf_set_inf(&a, 0);
   s21_mpf_exp(&e, &a);
   ASSERT(s21_mpf_is_inf(&e) && e.sign == 0, "exp(+inf) = +inf");
 
-  /* exp(-inf) = 0 */
   s21_mpf_set_inf(&a, 1);
   s21_mpf_exp(&e, &a);
   ASSERT(s21_mpf_is_zero(&e), "exp(-inf) = 0");
 
-  /* NULL checks */
   ASSERT(s21_mpf_exp(NULL, &a) == -1, "exp: NULL res");
   ASSERT(s21_mpf_exp(&e, NULL) == -1, "exp: NULL x");
 
@@ -697,22 +667,19 @@ static void test_log(void) {
   s21_mpf_init2(&diff, 256);
   s21_mpf_init2(&threshold, 256);
 
-  /* log(1) = 0 */
   s21_mpf_set_ui(&a, 1);
   s21_mpf_log(&l, &a);
   ASSERT(s21_mpf_is_zero(&l), "log(1) = 0");
 
-  /* log(e) ≈ 1 — проверяем через exp(1) */
   s21_mpf_set_ui(&a, 1);
-  s21_mpf_exp(&a, &a);        /* a = e */
-  s21_mpf_log(&l, &a);        /* l = log(e) */
+  s21_mpf_exp(&a, &a);
+  s21_mpf_log(&l, &a);
   s21_mpf_set_ui(&expected, 1);
   s21_mpf_sub(&diff, &l, &expected);
   s21_mpf_abs(&diff, &diff);
   s21_mpf_set_d(&threshold, 1e-14);
   ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "log(e) ≈ 1");
 
-  /* log(2) ≈ 0.693147180559945 */
   s21_mpf_set_ui(&a, 2);
   s21_mpf_log(&l, &a);
   s21_mpf_set_d(&expected, 0.693147180559945);
@@ -720,7 +687,6 @@ static void test_log(void) {
   s21_mpf_abs(&diff, &diff);
   ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "log(2) ≈ ln2");
 
-  /* log(10) ≈ 2.302585092994046 */
   s21_mpf_set_ui(&a, 10);
   s21_mpf_log(&l, &a);
   s21_mpf_set_d(&expected, 2.302585092994046);
@@ -729,7 +695,6 @@ static void test_log(void) {
   s21_mpf_set_d(&threshold, 1e-13);
   ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "log(10) ≈ 2.3026");
 
-  /* log(0.5) ≈ -0.693147180559945 */
   s21_mpf_set_d(&a, 0.5);
   s21_mpf_log(&l, &a);
   s21_mpf_set_d(&expected, -0.693147180559945);
@@ -738,27 +703,22 @@ static void test_log(void) {
   s21_mpf_set_d(&threshold, 1e-14);
   ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "log(0.5) ≈ -ln2");
 
-  /* log(0) = -inf */
   s21_mpf_set_ui(&a, 0);
   s21_mpf_log(&l, &a);
   ASSERT(s21_mpf_is_inf(&l) && l.sign == 1, "log(0) = -inf");
 
-  /* log(-1) = NaN */
   s21_mpf_set_si(&a, -1);
   s21_mpf_log(&l, &a);
   ASSERT(s21_mpf_is_nan(&l), "log(-1) = NaN");
 
-  /* log(NaN) = NaN */
   s21_mpf_set_nan(&a);
   s21_mpf_log(&l, &a);
   ASSERT(s21_mpf_is_nan(&l), "log(NaN) = NaN");
 
-  /* log(+inf) = +inf */
   s21_mpf_set_inf(&a, 0);
   s21_mpf_log(&l, &a);
   ASSERT(s21_mpf_is_inf(&l) && l.sign == 0, "log(+inf) = +inf");
 
-  /* NULL checks */
   ASSERT(s21_mpf_log(NULL, &a) == -1, "log: NULL res");
   ASSERT(s21_mpf_log(&l, NULL) == -1, "log: NULL x");
 
@@ -805,17 +765,14 @@ static void test_sin_cos(void) {
 
   s21_mpf_set_d(&threshold, 1e-14);
 
-  /* sin(0) = 0 */
   s21_mpf_set_ui(&a, 0);
   s21_mpf_sin(&s, &a);
   ASSERT(s21_mpf_is_zero(&s), "sin(0) = 0");
 
-  /* cos(0) = 1 */
   s21_mpf_cos(&c, &a);
   s21_mpf_set_ui(&expected, 1);
   ASSERT(s21_mpf_cmp(&c, &expected) == 0, "cos(0) = 1");
 
-  /* sin(1) ≈ 0.8414709848078965 */
   s21_mpf_set_d(&a, 1.0);
   s21_mpf_sin(&s, &a);
   s21_mpf_set_d(&expected, 0.8414709848078965);
@@ -823,14 +780,12 @@ static void test_sin_cos(void) {
   s21_mpf_abs(&diff, &diff);
   ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "sin(1) ≈ 0.84147");
 
-  /* cos(1) ≈ 0.5403023058681398 */
   s21_mpf_cos(&c, &a);
   s21_mpf_set_d(&expected, 0.5403023058681398);
   s21_mpf_sub(&diff, &c, &expected);
   s21_mpf_abs(&diff, &diff);
   ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "cos(1) ≈ 0.54030");
 
-  /* sin(π/2) = 1 */
   s21_mpf_pi(&pi);
   s21_mpf_set(&a, &pi);
   a.exp -= 1;
@@ -841,7 +796,6 @@ static void test_sin_cos(void) {
   s21_mpf_abs(&diff, &diff);
   ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "sin(π/2) ≈ 1");
 
-  /* cos(π) = -1 */
   s21_mpf_cos(&c, &pi);
   s21_mpf_set_si(&expected, -1);
   s21_mpf_sub(&diff, &c, &expected);
@@ -849,7 +803,6 @@ static void test_sin_cos(void) {
   s21_mpf_set_d(&threshold, 1e-13);
   ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "cos(π) ≈ -1");
 
-  /* sin(-x) = -sin(x) */
   s21_mpf_set_d(&a, 2.5);
   s21_mpf_sin(&s, &a);
   s21_mpf_neg(&a, &a);
@@ -857,17 +810,14 @@ static void test_sin_cos(void) {
   s21_mpf_neg(&expected, &expected);
   ASSERT(s21_mpf_cmp(&s, &expected) == 0, "sin(-x) = -sin(x)");
 
-  /* sin(NaN) = NaN */
   s21_mpf_set_nan(&a);
   s21_mpf_sin(&s, &a);
   ASSERT(s21_mpf_is_nan(&s), "sin(NaN) = NaN");
 
-  /* sin(+inf) = NaN */
   s21_mpf_set_inf(&a, 0);
   s21_mpf_sin(&s, &a);
   ASSERT(s21_mpf_is_nan(&s), "sin(+inf) = NaN");
 
-  /* NULL checks */
   ASSERT(s21_mpf_sin(NULL, &a) == -1, "sin: NULL res");
   ASSERT(s21_mpf_sin(&s, NULL) == -1, "sin: NULL x");
 
@@ -891,12 +841,10 @@ static void test_atan(void) {
 
   s21_mpf_set_d(&threshold, 1e-14);
 
-  /* atan(0) = 0 */
   s21_mpf_set_ui(&a, 0);
   s21_mpf_atan(&at, &a);
   ASSERT(s21_mpf_is_zero(&at), "atan(0) = 0");
 
-  /* atan(1) = π/4 ≈ 0.7853981633974483 */
   s21_mpf_set_ui(&a, 1);
   s21_mpf_atan(&at, &a);
   s21_mpf_set_d(&expected, 0.7853981633974483);
@@ -904,7 +852,6 @@ static void test_atan(void) {
   s21_mpf_abs(&diff, &diff);
   ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "atan(1) ≈ π/4");
 
-  /* atan(0.5) ≈ 0.4636476090008061 */
   s21_mpf_set_d(&a, 0.5);
   s21_mpf_atan(&at, &a);
   s21_mpf_set_d(&expected, 0.4636476090008061);
@@ -912,7 +859,6 @@ static void test_atan(void) {
   s21_mpf_abs(&diff, &diff);
   ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "atan(0.5) ≈ 0.46365");
 
-  /* atan(10) ≈ 1.4711276743037347 */
   s21_mpf_set_ui(&a, 10);
   s21_mpf_atan(&at, &a);
   s21_mpf_set_d(&expected, 1.4711276743037347);
@@ -920,7 +866,6 @@ static void test_atan(void) {
   s21_mpf_abs(&diff, &diff);
   ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "atan(10) ≈ 1.4711");
 
-  /* atan(-1) ≈ -π/4 */
   s21_mpf_set_si(&a, -1);
   s21_mpf_atan(&at, &a);
   s21_mpf_set_d(&expected, -0.7853981633974483);
@@ -928,7 +873,6 @@ static void test_atan(void) {
   s21_mpf_abs(&diff, &diff);
   ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "atan(-1) ≈ -π/4");
 
-  /* atan(+inf) = π/2 */
   s21_mpf_set_inf(&a, 0);
   s21_mpf_atan(&at, &a);
   s21_mpf_set_d(&expected, 1.5707963267948966);
@@ -936,7 +880,6 @@ static void test_atan(void) {
   s21_mpf_abs(&diff, &diff);
   ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "atan(+inf) ≈ π/2");
 
-  /* atan(-inf) = -π/2 */
   s21_mpf_set_inf(&a, 1);
   s21_mpf_atan(&at, &a);
   s21_mpf_set_d(&expected, -1.5707963267948966);
@@ -944,7 +887,6 @@ static void test_atan(void) {
   s21_mpf_abs(&diff, &diff);
   ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "atan(-inf) ≈ -π/2");
 
-  /* NULL checks */
   ASSERT(s21_mpf_atan(NULL, &a) == -1, "atan: NULL res");
   ASSERT(s21_mpf_atan(&at, NULL) == -1, "atan: NULL x");
 
@@ -966,12 +908,10 @@ static void test_tan_asin_acos(void) {
 
   s21_mpf_set_d(&threshold, 1e-14);
 
-  /* tan(0) = 0 */
   s21_mpf_set_ui(&a, 0);
   s21_mpf_tan(&r, &a);
   ASSERT(s21_mpf_is_zero(&r), "tan(0) = 0");
 
-  /* tan(1) ≈ 1.5574077246549023 */
   s21_mpf_set_d(&a, 1.0);
   s21_mpf_tan(&r, &a);
   s21_mpf_set_d(&expected, 1.5574077246549023);
@@ -979,12 +919,10 @@ static void test_tan_asin_acos(void) {
   s21_mpf_abs(&diff, &diff);
   ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "tan(1) ≈ 1.5574");
 
-  /* asin(0) = 0 */
   s21_mpf_set_ui(&a, 0);
   s21_mpf_asin(&r, &a);
   ASSERT(s21_mpf_is_zero(&r), "asin(0) = 0");
 
-  /* asin(0.5) ≈ 0.5235987755982989 (= π/6) */
   s21_mpf_set_d(&a, 0.5);
   s21_mpf_asin(&r, &a);
   s21_mpf_set_d(&expected, 0.5235987755982989);
@@ -992,7 +930,6 @@ static void test_tan_asin_acos(void) {
   s21_mpf_abs(&diff, &diff);
   ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "asin(0.5) ≈ π/6");
 
-  /* asin(1) ≈ π/2 */
   s21_mpf_set_ui(&a, 1);
   s21_mpf_asin(&r, &a);
   s21_mpf_set_d(&expected, 1.5707963267948966);
@@ -1000,12 +937,10 @@ static void test_tan_asin_acos(void) {
   s21_mpf_abs(&diff, &diff);
   ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "asin(1) ≈ π/2");
 
-  /* asin(2) = NaN */
   s21_mpf_set_ui(&a, 2);
   s21_mpf_asin(&r, &a);
   ASSERT(s21_mpf_is_nan(&r), "asin(2) = NaN");
 
-  /* acos(0) ≈ π/2 */
   s21_mpf_set_ui(&a, 0);
   s21_mpf_acos(&r, &a);
   s21_mpf_set_d(&expected, 1.5707963267948966);
@@ -1013,12 +948,10 @@ static void test_tan_asin_acos(void) {
   s21_mpf_abs(&diff, &diff);
   ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "acos(0) ≈ π/2");
 
-  /* acos(1) = 0 */
   s21_mpf_set_ui(&a, 1);
   s21_mpf_acos(&r, &a);
   ASSERT(s21_mpf_is_zero(&r), "acos(1) = 0");
 
-  /* acos(-1) ≈ π */
   s21_mpf_set_si(&a, -1);
   s21_mpf_acos(&r, &a);
   s21_mpf_set_d(&expected, 3.141592653589793);
@@ -1026,12 +959,10 @@ static void test_tan_asin_acos(void) {
   s21_mpf_abs(&diff, &diff);
   ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "acos(-1) ≈ π");
 
-  /* acos(2) = NaN */
   s21_mpf_set_ui(&a, 2);
   s21_mpf_acos(&r, &a);
   ASSERT(s21_mpf_is_nan(&r), "acos(2) = NaN");
 
-  /* NULL checks */
   ASSERT(s21_mpf_tan(NULL, &a) == -1, "tan: NULL res");
   ASSERT(s21_mpf_tan(&r, NULL) == -1, "tan: NULL x");
   ASSERT(s21_mpf_asin(NULL, &a) == -1, "asin: NULL res");
@@ -1045,6 +976,85 @@ static void test_tan_asin_acos(void) {
   s21_mpf_clear(&diff);
   s21_mpf_clear(&threshold);
   printf("[ok] tan / asin / acos\n");
+}
+
+static void test_set_round(void) {
+  /* x = 1 + 3·2⁻⁶⁴ при prec=256, приведённое к prec=64.
+     Это ровно середина между 1+2⁻⁶³ и 1+2⁻⁶²:
+       RNDN → 1+2⁻⁶² (ties-to-even)
+       RNDZ → 1+2⁻⁶³
+       RNDU → 1+2⁻⁶²
+       RNDD → 1+2⁻⁶³ */
+  s21_mpf_t hi, rndn, rndz, rndu, rndd;
+  s21_mpf_init2(&hi, 256);
+  s21_mpf_init2(&rndn, 64);
+  s21_mpf_init2(&rndz, 64);
+  s21_mpf_init2(&rndu, 64);
+  s21_mpf_init2(&rndd, 64);
+
+  s21_mpf_set_ui(&hi, 1);
+  s21_mpf_t tiny;
+  s21_mpf_init2(&tiny, 256);
+  s21_mpf_set_ui(&tiny, 3);
+  tiny.exp -= 64;
+  s21_mpf_normalize(&tiny);
+  s21_mpf_add(&hi, &hi, &tiny);
+  s21_mpf_clear(&tiny);
+
+  s21_mpf_set_round(&rndn, &hi, S21_MPF_RNDN);
+  s21_mpf_set_round(&rndz, &hi, S21_MPF_RNDZ);
+  s21_mpf_set_round(&rndu, &hi, S21_MPF_RNDU);
+  s21_mpf_set_round(&rndd, &hi, S21_MPF_RNDD);
+
+  s21_mpf_t lo62;
+  s21_mpf_init2(&lo62, 64);
+  s21_mpf_set_ui(&lo62, 1);
+  s21_mpf_t t62;
+  s21_mpf_init2(&t62, 64);
+  s21_mpf_set_ui(&t62, 1);
+  t62.exp -= 62;
+  s21_mpf_normalize(&t62);
+  s21_mpf_add(&lo62, &lo62, &t62);
+  s21_mpf_clear(&t62);
+
+  s21_mpf_t lo63;
+  s21_mpf_init2(&lo63, 64);
+  s21_mpf_set_ui(&lo63, 1);
+  s21_mpf_t t63;
+  s21_mpf_init2(&t63, 64);
+  s21_mpf_set_ui(&t63, 1);
+  t63.exp -= 63;
+  s21_mpf_normalize(&t63);
+  s21_mpf_add(&lo63, &lo63, &t63);
+  s21_mpf_clear(&t63);
+
+  ASSERT(s21_mpf_cmp(&rndn, &lo62) == 0,
+         "RNDN(1 + 3·2⁻⁶⁴) = 1 + 2⁻⁶² (ties-to-even)");
+  ASSERT(s21_mpf_cmp(&rndz, &lo63) == 0,
+         "RNDZ(1 + 3·2⁻⁶⁴) = 1 + 2⁻⁶³ (truncate)");
+  ASSERT(s21_mpf_cmp(&rndu, &lo62) == 0,
+         "RNDU(1 + 3·2⁻⁶⁴) = 1 + 2⁻⁶² (up)");
+  ASSERT(s21_mpf_cmp(&rndd, &lo63) == 0,
+         "RNDD(1 + 3·2⁻⁶⁴) = 1 + 2⁻⁶³ (down)");
+
+  /* Расширение точности — всегда точное. */
+  s21_mpf_t widened;
+  s21_mpf_init2(&widened, 128);
+  s21_mpf_set_round(&widened, &lo62, S21_MPF_RNDZ);
+  ASSERT(s21_mpf_cmp(&widened, &lo62) == 0, "widening is exact");
+
+  ASSERT(s21_mpf_set_round(NULL, &hi, S21_MPF_RNDN) == -1, "NULL dst");
+  ASSERT(s21_mpf_set_round(&rndn, NULL, S21_MPF_RNDN) == -1, "NULL src");
+
+  s21_mpf_clear(&hi);
+  s21_mpf_clear(&rndn);
+  s21_mpf_clear(&rndz);
+  s21_mpf_clear(&rndu);
+  s21_mpf_clear(&rndd);
+  s21_mpf_clear(&lo62);
+  s21_mpf_clear(&lo63);
+  s21_mpf_clear(&widened);
+  printf("[ok] set_round (RNDN/RNDZ/RNDU/RNDD)\n");
 }
 
 int main(void) {
@@ -1068,6 +1078,7 @@ int main(void) {
   test_sin_cos();
   test_atan();
   test_tan_asin_acos();
+  test_set_round();
   printf("=== Все тесты прошли ===\n");
   return 0;
 }
