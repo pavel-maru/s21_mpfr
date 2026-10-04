@@ -70,6 +70,16 @@ int  s21_mpf_get_bit(const s21_mpf_t *x, uint32_t pos);  /* 0 или 1 */
 int  s21_mpf_msb(const s21_mpf_t *x);                    /* -1 если всё нулевое */
 int  s21_mpf_lsb(const s21_mpf_t *x);                    /* -1 если всё нулевое */
 
+/* Установить бит позиции pos в значение 0 или 1.
+   Если pos >= prec — ничего не делает. */
+void s21_mpf_set_bit(s21_mpf_t *x, uint32_t pos, int value);
+
+/* Сдвиг массива лимбов влево на shift бит: dst = src << shift.
+   dst и src — массивы длины count. Старшие биты, выходящие
+   за пределы массива, отбрасываются. */
+void s21_mpf_shift_left_into(uint64_t *dst, const uint64_t *src,
+                             size_t count, int shift);
+
 /* ============== Сравнение ============== */
 
 /* Возвращает:

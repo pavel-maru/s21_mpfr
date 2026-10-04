@@ -333,7 +333,6 @@ static void test_div(void) {
   s21_mpf_init2(&c, 256);
   s21_mpf_init2(&expected, 256);
 
-  /* Точные деления */
   s21_mpf_set_ui(&a, 6);
   s21_mpf_set_ui(&b, 3);
   s21_mpf_div(&c, &a, &b);
@@ -370,58 +369,49 @@ static void test_div(void) {
   s21_mpf_set_ui(&expected, 1);
   ASSERT(s21_mpf_cmp(&c, &expected) == 0, "1 / 1 = 1");
 
-  /* 0 / 5 = 0 */
   s21_mpf_set_ui(&a, 0);
   s21_mpf_set_ui(&b, 5);
   s21_mpf_div(&c, &a, &b);
   ASSERT(s21_mpf_is_zero(&c), "0 / 5 = 0");
 
-  /* 5 / inf = 0 */
   s21_mpf_set_ui(&a, 5);
   s21_mpf_set_inf(&b, 0);
   s21_mpf_div(&c, &a, &b);
   ASSERT(s21_mpf_is_zero(&c), "5 / inf = 0");
 
-  /* inf / 5 = inf */
   s21_mpf_set_inf(&a, 0);
   s21_mpf_set_ui(&b, 5);
   s21_mpf_div(&c, &a, &b);
   ASSERT(s21_mpf_is_inf(&c) && c.sign == 0, "inf / 5 = inf");
 
-  /* inf / inf = NaN */
   s21_mpf_set_inf(&a, 0);
   s21_mpf_set_inf(&b, 0);
   s21_mpf_div(&c, &a, &b);
   ASSERT(s21_mpf_is_nan(&c), "inf / inf = NaN");
 
-  /* 5 / 0 = inf */
   s21_mpf_set_ui(&a, 5);
   s21_mpf_set_ui(&b, 0);
   s21_mpf_div(&c, &a, &b);
   ASSERT(s21_mpf_is_inf(&c) && c.sign == 0, "5 / 0 = inf");
 
-  /* 0 / 0 = NaN */
   s21_mpf_set_ui(&a, 0);
   s21_mpf_set_ui(&b, 0);
   s21_mpf_div(&c, &a, &b);
   ASSERT(s21_mpf_is_nan(&c), "0 / 0 = NaN");
 
-  /* Круговой тест: (a / b) * b ≈ a */
   s21_mpf_set_ui(&a, 1);
   s21_mpf_set_ui(&b, 3);
-  s21_mpf_div(&c, &a, &b); /* c = 1/3 с округлением */
+  s21_mpf_div(&c, &a, &b);
   s21_mpf_t back;
   s21_mpf_init2(&back, 256);
-  s21_mpf_mul(&back, &c, &b); /* back ≈ 1 */
+  s21_mpf_mul(&back, &c, &b);
   s21_mpf_set_ui(&expected, 1);
-  /* Проверяем близость: |back - 1| < 2^-200 */
   s21_mpf_t diff;
   s21_mpf_init2(&diff, 256);
   s21_mpf_sub(&diff, &back, &expected);
   s21_mpf_abs(&diff, &diff);
   s21_mpf_t threshold;
   s21_mpf_init2(&threshold, 256);
-  /* threshold = 2^-200: поставим маленькое число через set_d */
   s21_mpf_set_d(&threshold, 1e-60);
   ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "(1/3)*3 ≈ 1");
   s21_mpf_clear(&diff);
@@ -433,6 +423,103 @@ static void test_div(void) {
   s21_mpf_clear(&c);
   s21_mpf_clear(&expected);
   printf("[ok] div\n");
+}
+
+static void test_null_checks(void) {
+  s21_mpf_t a, b, c;
+  s21_mpf_init2(&a, 64);
+  s21_mpf_init2(&b, 64);
+  s21_mpf_init2(&c, 64);
+
+  s21_mpf_set_ui(&a, 5);
+  s21_mpf_set_ui(&b, 3);
+
+  /* add */
+  ASSERT(s21_mpf_add(NULL, &a, &b) == -1, "add: NULL res");
+  ASSERT(s21_mpf_add(&c, NULL, &b) == -1, "add: NULL x");
+  ASSERT(s21_mpf_add(&c, &a, NULL) == -1, "add: NULL y");
+
+  /* sub */
+  ASSERT(s21_mpf_sub(NULL, &a, &b) == -1, "sub: NULL res");
+  ASSERT(s21_mpf_sub(&c, NULL, &b) == -1, "sub: NULL x");
+  ASSERT(s21_mpf_sub(&c, &a, NULL) == -1, "sub: NULL y");
+
+  /* mul */
+  ASSERT(s21_mpf_mul(NULL, &a, &b) == -1, "mul: NULL res");
+  ASSERT(s21_mpf_mul(&c, NULL, &b) == -1, "mul: NULL x");
+  ASSERT(s21_mpf_mul(&c, &a, NULL) == -1, "mul: NULL y");
+
+  /* div */
+  ASSERT(s21_mpf_div(NULL, &a, &b) == -1, "div: NULL res");
+  ASSERT(s21_mpf_div(&c, NULL, &b) == -1, "div: NULL x");
+  ASSERT(s21_mpf_div(&c, &a, NULL) == -1, "div: NULL y");
+
+  /* neg / abs — void, но не должны падать */
+  s21_mpf_neg(NULL, &a);
+  s21_mpf_neg(&c, NULL);
+  s21_mpf_abs(NULL, &a);
+  s21_mpf_abs(&c, NULL);
+
+  /* Разные точности — тоже -1 */
+  s21_mpf_t d;
+  s21_mpf_init2(&d, 128);
+  s21_mpf_set_ui(&d, 7);
+  ASSERT(s21_mpf_add(&c, &a, &d) == -1, "add: prec mismatch");
+  ASSERT(s21_mpf_mul(&c, &a, &d) == -1, "mul: prec mismatch");
+  s21_mpf_clear(&d);
+
+  s21_mpf_clear(&a);
+  s21_mpf_clear(&b);
+  s21_mpf_clear(&c);
+  printf("[ok] null checks\n");
+}
+
+static void test_bit_utils(void) {
+  s21_mpf_t x;
+  s21_mpf_init2(&x, 128);
+  s21_mpf_set_ui(&x, 1);
+
+  /* set_bit / get_bit round-trip */
+  for (uint32_t pos = 0; pos < 128; pos += 17) {
+    s21_mpf_set_bit(&x, pos, 1);
+    ASSERT(s21_mpf_get_bit(&x, pos) == 1, "set_bit 1 -> get_bit 1");
+    s21_mpf_set_bit(&x, pos, 0);
+    ASSERT(s21_mpf_get_bit(&x, pos) == 0, "set_bit 0 -> get_bit 0");
+  }
+
+  /* Бит за пределами prec игнорируется */
+  s21_mpf_set_bit(&x, 200, 1);
+  ASSERT(s21_mpf_get_bit(&x, 200) == 0, "bit above prec ignored");
+
+  s21_mpf_clear(&x);
+
+  /* shift_left_into */
+  {
+    uint64_t src[2] = {0x1ULL, 0};
+    uint64_t dst[2] = {0};
+    s21_mpf_shift_left_into(dst, src, 2, 1);
+    ASSERT(dst[0] == 0x2ULL, "shift left by 1: low");
+    ASSERT(dst[1] == 0, "shift left by 1: high");
+
+    uint64_t src2[2] = {0x8000000000000000ULL, 0};
+    uint64_t dst2[2] = {0};
+    s21_mpf_shift_left_into(dst2, src2, 2, 1);
+    ASSERT(dst2[0] == 0, "shift through boundary: low zero");
+    ASSERT(dst2[1] == 0x1ULL, "shift through boundary: high 1");
+
+    uint64_t src3[2] = {0xDEADBEEFULL, 0};
+    uint64_t dst3[2] = {0};
+    s21_mpf_shift_left_into(dst3, src3, 2, 64);
+    ASSERT(dst3[0] == 0, "shift by 64: low zero");
+    ASSERT(dst3[1] == 0xDEADBEEFULL, "shift by 64: high moved");
+
+    uint64_t src4[2] = {0xCAFEULL, 0xF00DULL};
+    uint64_t dst4[2] = {0};
+    s21_mpf_shift_left_into(dst4, src4, 2, 0);
+    ASSERT(dst4[0] == 0xCAFEULL && dst4[1] == 0xF00DULL, "shift by 0 copy");
+  }
+
+  printf("[ok] bit utilities\n");
 }
 
 int main(void) {
@@ -447,6 +534,8 @@ int main(void) {
   test_add_sub();
   test_mul();
   test_div();
+  test_null_checks();
+  test_bit_utils();
   printf("=== Все тесты прошли ===\n");
   return 0;
 }

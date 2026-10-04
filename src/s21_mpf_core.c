@@ -60,6 +60,17 @@ int s21_mpf_get_bit(const s21_mpf_t *x, uint32_t pos) {
   return (int)((x->limbs[word] >> bit) & 1ULL);
 }
 
+void s21_mpf_set_bit(s21_mpf_t *x, uint32_t pos, int value) {
+  if (x == NULL || pos >= x->prec) return;
+  uint32_t word = pos / 64;
+  uint32_t bit = pos % 64;
+  if (value) {
+    x->limbs[word] |= (1ULL << bit);
+  } else {
+    x->limbs[word] &= ~(1ULL << bit);
+  }
+}
+
 int s21_mpf_msb(const s21_mpf_t *x) {
   if (x->kind != S21_MPF_NORMAL) return -1;
   size_t count = s21_mpf_limbs_for_prec(x->prec);
@@ -80,6 +91,31 @@ int s21_mpf_lsb(const s21_mpf_t *x) {
     }
   }
   return -1;
+}
+
+void s21_mpf_shift_left_into(uint64_t *dst, const uint64_t *src,
+                             size_t count, int shift) {
+  if (shift == 0) {
+    memcpy(dst, src, count * sizeof(uint64_t));
+    return;
+  }
+  int word_shift = shift / 64;
+  int bit_shift = shift % 64;
+
+  for (int i = (int)count - 1; i >= 0; i--) {
+    int src_idx = i - word_shift;
+    if (src_idx < 0) {
+      dst[i] = 0;
+    } else {
+      uint64_t v = src[src_idx];
+      if (bit_shift && src_idx > 0) {
+        v = (v << bit_shift) | (src[src_idx - 1] >> (64 - bit_shift));
+      } else if (bit_shift) {
+        v <<= bit_shift;
+      }
+      dst[i] = v;
+    }
+  }
 }
 
 /* ============================================================
@@ -501,6 +537,7 @@ static void s21_mpf_sub_magnitude(s21_mpf_t *res, const s21_mpf_t *x,
    ============================================================ */
 
 void s21_mpf_neg(s21_mpf_t *res, const s21_mpf_t *x) {
+  if (res == NULL || x == NULL) return;
   s21_mpf_set(res, x);
   if (res->kind != S21_MPF_NAN) {
     res->sign = !res->sign;
@@ -508,6 +545,7 @@ void s21_mpf_neg(s21_mpf_t *res, const s21_mpf_t *x) {
 }
 
 void s21_mpf_abs(s21_mpf_t *res, const s21_mpf_t *x) {
+  if (res == NULL || x == NULL) return;
   s21_mpf_set(res, x);
   if (res->kind == S21_MPF_NORMAL || res->kind == S21_MPF_INF) {
     res->sign = 0;
@@ -515,6 +553,7 @@ void s21_mpf_abs(s21_mpf_t *res, const s21_mpf_t *x) {
 }
 
 int s21_mpf_add(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
+  if (res == NULL || x == NULL || y == NULL) return -1;
   if (res->prec != x->prec || x->prec != y->prec) return -1;
 
   if (x->kind == S21_MPF_NAN || y->kind == S21_MPF_NAN) {
@@ -571,6 +610,7 @@ int s21_mpf_add(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
 }
 
 int s21_mpf_sub(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
+  if (res == NULL || x == NULL || y == NULL) return -1;
   if (res->prec != x->prec || x->prec != y->prec) return -1;
 
   s21_mpf_t neg_y;
@@ -585,8 +625,6 @@ int s21_mpf_sub(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
    Умножение
    ============================================================ */
 
-/* Умножение мантисс как целых чисел: prod = a * b.
-   prod имеет размер 2*count и обнуляется внутри. */
 static void s21_mpf_mul_mant(uint64_t *prod, const uint64_t *a,
                              const uint64_t *b, size_t count) {
   memset(prod, 0, 2 * count * sizeof(uint64_t));
@@ -610,6 +648,7 @@ static void s21_mpf_mul_mant(uint64_t *prod, const uint64_t *a,
 }
 
 int s21_mpf_mul(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
+  if (res == NULL || x == NULL || y == NULL) return -1;
   if (res->prec != x->prec || x->prec != y->prec) return -1;
 
   if (x->kind == S21_MPF_NAN || y->kind == S21_MPF_NAN) {
@@ -635,7 +674,6 @@ int s21_mpf_mul(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
   uint64_t *prod = malloc(2 * count * sizeof(uint64_t));
   s21_mpf_mul_mant(prod, x->limbs, y->limbs, count);
 
-  /* Берём старшие prec бит произведения: сдвиг вправо на prec бит. */
   uint32_t word_shift = res->prec / 64;
   uint32_t bit_shift = res->prec % 64;
 
@@ -674,15 +712,15 @@ int s21_mpf_mul(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
    ============================================================ */
 
 int s21_mpf_div(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
+  if (res == NULL || x == NULL || y == NULL) return -1;
   if (res->prec != x->prec || x->prec != y->prec) return -1;
 
-  /* Особые случаи */
   if (x->kind == S21_MPF_NAN || y->kind == S21_MPF_NAN) {
     s21_mpf_set_nan(res);
     return 0;
   }
   if (x->kind == S21_MPF_INF && y->kind == S21_MPF_INF) {
-    s21_mpf_set_nan(res); /* inf / inf = NaN */
+    s21_mpf_set_nan(res);
     return 0;
   }
   if (x->kind == S21_MPF_INF) {
@@ -695,7 +733,7 @@ int s21_mpf_div(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
   }
   if (y->kind == S21_MPF_ZERO) {
     if (x->kind == S21_MPF_ZERO) {
-      s21_mpf_set_nan(res); /* 0/0 = NaN */
+      s21_mpf_set_nan(res);
     } else {
       s21_mpf_set_inf(res, x->sign ^ y->sign);
     }
@@ -706,32 +744,25 @@ int s21_mpf_div(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
     return 0;
   }
 
-  /* Оба NORMAL. q = floor(mant_x * 2^prec / mant_y), до prec+1 бит. */
   uint32_t prec = res->prec;
   size_t count = s21_mpf_limbs_for_prec(prec);
 
   uint64_t *rem = calloc(count + 1, sizeof(uint64_t));
   uint64_t *q = calloc(count + 1, sizeof(uint64_t));
 
-  /* Бинарное длинное деление: обрабатываем 2*prec бит N = mant_x * 2^prec
-     от старшего к младшему. */
   for (int i = 2 * (int)prec - 1; i >= 0; i--) {
-    /* rem <<= 1 */
     uint64_t carry = 0;
     for (size_t w = 0; w < count + 1; w++) {
       uint64_t nc = rem[w] >> 63;
       rem[w] = (rem[w] << 1) | carry;
       carry = nc;
     }
-    /* Добавляем бит i числа N: если i >= prec, это бит (i - prec) из mant_x,
-       иначе 0 (нижние prec бит N — нули) */
     if (i >= (int)prec) {
       int src = i - (int)prec;
       uint64_t b = (x->limbs[src / 64] >> (src % 64)) & 1ULL;
       rem[0] |= b;
     }
 
-    /* Если rem >= mant_y — вычитаем и ставим бит q */
     int geq = (rem[count] != 0);
     if (!geq) {
       geq = 1;
@@ -762,7 +793,6 @@ int s21_mpf_div(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
   }
   free(rem);
 
-  /* q может иметь prec+1 бит (если mant_x >= mant_y). Проверяем бит prec. */
   uint32_t pw = prec / 64;
   uint32_t pb = prec % 64;
   int overflow = 0;
@@ -771,7 +801,6 @@ int s21_mpf_div(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
   }
 
   if (overflow) {
-    /* Сдвигаем q вправо на 1 бит (RNDZ), exp_r увеличиваем на 1 */
     for (size_t w = 0; w < count + 1; w++) {
       uint64_t high_bit = (w + 1 < count + 1) ? (q[w + 1] << 63) : 0;
       q[w] = (q[w] >> 1) | high_bit;
@@ -781,7 +810,6 @@ int s21_mpf_div(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
   memcpy(res->limbs, q, count * sizeof(uint64_t));
   free(q);
 
-  /* Отрезаем биты выше prec */
   uint32_t mask_bits = prec % 64;
   if (mask_bits != 0) {
     res->limbs[count - 1] &= (1ULL << mask_bits) - 1;
