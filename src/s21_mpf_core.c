@@ -274,12 +274,33 @@ void s21_mpf_set_d(s21_mpf_t *x, double v) {
   s21_mpf_normalize(x);
 }
 
+/* Присваивание по умолчанию: RNDN. */
 void s21_mpf_set(s21_mpf_t *dst, const s21_mpf_t *src) {
-  if (dst == src) return;
+  s21_mpf_set_round(dst, src, S21_MPF_RNDN);
+}
+
+/* Присваивание с явным режимом округления.
+
+   При dst->prec >= src->prec операция точная (расширение).
+   При dst->prec < src->prec отбрасываемые биты анализируются:
+     round_bit = старший отбрасываемый бит
+     sticky    = любые остальные отбрасываемые биты
+     lsb       = младший бит сохранённой части
+
+   RNDN: если round_bit=0 — не округляем; если round_bit=1 и sticky=1 —
+         округляем; если round_bit=1 и sticky=0 (точная середина) —
+         округляем к чётному (по lsb).
+   RNDZ: всегда вниз (к нулю).
+   RNDU: вверх, если результат положительный.
+   RNDD: вниз, если результат отрицательный. */
+int s21_mpf_set_round(s21_mpf_t *dst, const s21_mpf_t *src, s21_mpf_rnd_t rnd) {
+  if (dst == NULL || src == NULL) return -1;
+  if (dst == src) return 0;
 
   size_t dst_count = s21_mpf_limbs_for_prec(dst->prec);
   memset(dst->limbs, 0, dst_count * sizeof(uint64_t));
 
+  /* Особые значения или совпадающая точность: копирование как есть. */
   if (src->kind != S21_MPF_NORMAL || dst->prec == src->prec) {
     size_t src_count = s21_mpf_limbs_for_prec(src->prec);
     size_t n = dst_count < src_count ? dst_count : src_count;
@@ -287,43 +308,117 @@ void s21_mpf_set(s21_mpf_t *dst, const s21_mpf_t *src) {
     dst->exp = src->exp;
     dst->sign = src->sign;
     dst->kind = src->kind;
-    return;
+    return 0;
   }
 
   size_t src_count = s21_mpf_limbs_for_prec(src->prec);
 
+  /* Расширение точности: сдвиг влево, значение не меняется. */
   if (dst->prec > src->prec) {
     int shift = (int)(dst->prec - src->prec);
     s21_mpf_shift_left_into(dst->limbs, src->limbs, dst_count, shift);
     dst->exp = src->exp;
-  } else {
-    int shift = (int)(src->prec - dst->prec);
-    int word_shift = shift / 64;
-    int bit_shift = shift % 64;
-    for (size_t i = 0; i < dst_count; i++) {
-      int src_idx = (int)i + word_shift;
-      if (src_idx >= (int)src_count) {
-        dst->limbs[i] = 0;
-      } else {
-        uint64_t v = src->limbs[src_idx];
-        if (bit_shift && src_idx + 1 < (int)src_count) {
-          v = (v >> bit_shift) | (src->limbs[src_idx + 1] << (64 - bit_shift));
-        } else if (bit_shift) {
-          v >>= bit_shift;
-        }
-        dst->limbs[i] = v;
-      }
-    }
-    dst->exp = src->exp;
+    dst->sign = src->sign;
+    dst->kind = S21_MPF_NORMAL;
+    return 0;
   }
 
+  /* Сужение точности: анализируем отбрасываемые биты. */
+  int shift = (int)(src->prec - dst->prec);
+  int word_shift = shift / 64;
+  int bit_shift = shift % 64;
+
+  /* round_bit = старший отбрасываемый бит (позиция shift - 1). */
+  int round_bit = 0;
+  {
+    int pos = shift - 1;
+    round_bit = (int)((src->limbs[pos / 64] >> (pos % 64)) & 1ULL);
+  }
+
+  /* sticky = любой ненулевой бит среди младших (shift - 1). */
+  int sticky = 0;
+  {
+    int top = shift - 1;
+    int full_words = top / 64;
+    int rem_bits = top % 64;
+    for (int i = 0; i < full_words; i++) {
+      if (src->limbs[i] != 0) { sticky = 1; break; }
+    }
+    if (!sticky && rem_bits > 0) {
+      uint64_t mask = (1ULL << rem_bits) - 1;
+      if ((src->limbs[full_words] & mask) != 0) sticky = 1;
+    }
+  }
+
+  /* Сдвиг src вправо на shift бит → dst. */
+  for (size_t i = 0; i < dst_count; i++) {
+    int src_idx = (int)i + word_shift;
+    if (src_idx >= (int)src_count) {
+      dst->limbs[i] = 0;
+    } else {
+      uint64_t v = src->limbs[src_idx];
+      if (bit_shift && src_idx + 1 < (int)src_count) {
+        v = (v >> bit_shift) | (src->limbs[src_idx + 1] << (64 - bit_shift));
+      } else if (bit_shift) {
+        v >>= bit_shift;
+      }
+      dst->limbs[i] = v;
+    }
+  }
+
+  /* Отрезать биты выше dst->prec. */
   uint32_t mask_bits = dst->prec % 64;
   if (mask_bits != 0 && dst_count > 0) {
     dst->limbs[dst_count - 1] &= (1ULL << mask_bits) - 1;
   }
 
+  dst->exp = src->exp;
   dst->sign = src->sign;
   dst->kind = S21_MPF_NORMAL;
+
+  /* Решение об округлении вверх. */
+  int round_up = 0;
+  if (round_bit || sticky) {
+    switch (rnd) {
+      case S21_MPF_RNDZ:
+        round_up = 0;
+        break;
+      case S21_MPF_RNDU:
+        round_up = (src->sign == 0);
+        break;
+      case S21_MPF_RNDD:
+        round_up = (src->sign == 1);
+        break;
+      case S21_MPF_RNDN:
+      default:
+        if (round_bit == 0) {
+          round_up = 0;
+        } else if (sticky) {
+          round_up = 1;
+        } else {
+          round_up = (int)(dst->limbs[0] & 1ULL);
+        }
+        break;
+    }
+  }
+
+  if (round_up) {
+    uint64_t carry = 1;
+    for (size_t i = 0; i < dst_count && carry; i++) {
+      dst->limbs[i]++;
+      if (dst->limbs[i] != 0) carry = 0;
+    }
+    if (carry) {
+      /* Переполнение за пределы prec бит: мантисса стала 2^prec,
+         что представляется как 2^(prec-1) с exp+1. */
+      memset(dst->limbs, 0, dst_count * sizeof(uint64_t));
+      uint32_t top = dst->prec - 1;
+      dst->limbs[top / 64] = 1ULL << (top % 64);
+      dst->exp += 1;
+    }
+  }
+
+  return 0;
 }
 
 /* ============================================================
@@ -802,7 +897,7 @@ int s21_mpf_div(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
 }
 
 /* ============================================================
-   Деление на маленькое целое (для рядов Тейлора)
+   Деление на маленькое целое
    ============================================================ */
 
 static void s21_mpf_div_small(s21_mpf_t *x, uint32_t n) {
@@ -1177,12 +1272,10 @@ int s21_mpf_pi(s21_mpf_t *res) {
 int s21_mpf_sin(s21_mpf_t *res, const s21_mpf_t *x) {
   if (res == NULL || x == NULL) return -1;
   if (x->kind == S21_MPF_NAN || x->kind == S21_MPF_INF) {
-    s21_mpf_set_nan(res);
-    return 0;
+    s21_mpf_set_nan(res); return 0;
   }
   if (x->kind == S21_MPF_ZERO) {
-    s21_mpf_set_zero(res, x->sign);
-    return 0;
+    s21_mpf_set_zero(res, x->sign); return 0;
   }
 
   uint32_t work_prec = res->prec + 64;
@@ -1244,12 +1337,10 @@ int s21_mpf_sin(s21_mpf_t *res, const s21_mpf_t *x) {
 int s21_mpf_cos(s21_mpf_t *res, const s21_mpf_t *x) {
   if (res == NULL || x == NULL) return -1;
   if (x->kind == S21_MPF_NAN || x->kind == S21_MPF_INF) {
-    s21_mpf_set_nan(res);
-    return 0;
+    s21_mpf_set_nan(res); return 0;
   }
   if (x->kind == S21_MPF_ZERO) {
-    s21_mpf_set_ui(res, 1);
-    return 0;
+    s21_mpf_set_ui(res, 1); return 0;
   }
 
   uint32_t work_prec = res->prec + 64;
@@ -1314,12 +1405,10 @@ int s21_mpf_cos(s21_mpf_t *res, const s21_mpf_t *x) {
 int s21_mpf_tan(s21_mpf_t *res, const s21_mpf_t *x) {
   if (res == NULL || x == NULL) return -1;
   if (x->kind == S21_MPF_NAN || x->kind == S21_MPF_INF) {
-    s21_mpf_set_nan(res);
-    return 0;
+    s21_mpf_set_nan(res); return 0;
   }
   if (x->kind == S21_MPF_ZERO) {
-    s21_mpf_set_zero(res, x->sign);
-    return 0;
+    s21_mpf_set_zero(res, x->sign); return 0;
   }
 
   uint32_t work_prec = res->prec + 64;
@@ -1443,17 +1532,14 @@ int s21_mpf_asin(s21_mpf_t *res, const s21_mpf_t *x) {
   s21_mpf_set(&a, x);
 
   if (a.kind == S21_MPF_INF) {
-    s21_mpf_set_nan(res);
-    goto cleanup;
+    s21_mpf_set_nan(res); goto cleanup;
   }
   s21_mpf_abs(&a, &a);
   s21_mpf_set_ui(&one, 1);
   if (s21_mpf_cmp(&a, &one) > 0) {
-    s21_mpf_set_nan(res);
-    goto cleanup;
+    s21_mpf_set_nan(res); goto cleanup;
   }
 
-  /* asin(x) = atan(x / sqrt(1 - x²)) */
   s21_mpf_set(&a, x);
   s21_mpf_mul(&sq, &a, &a);
   s21_mpf_sub(&den, &one, &sq);
@@ -1492,24 +1578,19 @@ int s21_mpf_acos(s21_mpf_t *res, const s21_mpf_t *x) {
   s21_mpf_abs(&a, &a);
 
   if (a.kind == S21_MPF_INF || s21_mpf_cmp(&a, &one) > 0) {
-    s21_mpf_set_nan(res);
-    goto cleanup;
+    s21_mpf_set_nan(res); goto cleanup;
   }
 
-  /* Специальные случаи x = ±1: разные пути вычисления π/2 в asin
-     и compute_pi дают несовпадающие младшие биты, поэтому разность
-     не даёт чистый 0 или π. Обрабатываем явно. */
   if (s21_mpf_cmp(&a, &one) == 0) {
     if (x->sign == 0) {
-      s21_mpf_set_zero(res, 0);            /* acos(1) = 0 */
+      s21_mpf_set_zero(res, 0);
     } else {
-      s21_mpf_compute_pi(&result, work_prec); /* acos(-1) = π */
+      s21_mpf_compute_pi(&result, work_prec);
       s21_mpf_set(res, &result);
     }
     goto cleanup;
   }
 
-  /* Общий случай: acos(x) = π/2 - asin(x) */
   s21_mpf_asin(&as, x);
 
   s21_mpf_compute_pi(&pi_2, work_prec);
