@@ -770,6 +770,283 @@ static void test_log(void) {
   printf("[ok] log\n");
 }
 
+static void test_pi(void) {
+  s21_mpf_t pi, expected, diff, threshold;
+  s21_mpf_init2(&pi, 256);
+  s21_mpf_init2(&expected, 256);
+  s21_mpf_init2(&diff, 256);
+  s21_mpf_init2(&threshold, 256);
+
+  s21_mpf_pi(&pi);
+  s21_mpf_set_d(&expected, 3.141592653589793);
+  s21_mpf_sub(&diff, &pi, &expected);
+  s21_mpf_abs(&diff, &diff);
+  s21_mpf_set_d(&threshold, 1e-15);
+  ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "π ≈ 3.141592653589793");
+
+  ASSERT(s21_mpf_pi(NULL) == -1, "pi: NULL");
+
+  s21_mpf_clear(&pi);
+  s21_mpf_clear(&expected);
+  s21_mpf_clear(&diff);
+  s21_mpf_clear(&threshold);
+  printf("[ok] pi\n");
+}
+
+static void test_sin_cos(void) {
+  s21_mpf_t a, s, c, expected, diff, threshold, pi;
+  s21_mpf_init2(&a, 256);
+  s21_mpf_init2(&s, 256);
+  s21_mpf_init2(&c, 256);
+  s21_mpf_init2(&expected, 256);
+  s21_mpf_init2(&diff, 256);
+  s21_mpf_init2(&threshold, 256);
+  s21_mpf_init2(&pi, 256);
+
+  s21_mpf_set_d(&threshold, 1e-14);
+
+  /* sin(0) = 0 */
+  s21_mpf_set_ui(&a, 0);
+  s21_mpf_sin(&s, &a);
+  ASSERT(s21_mpf_is_zero(&s), "sin(0) = 0");
+
+  /* cos(0) = 1 */
+  s21_mpf_cos(&c, &a);
+  s21_mpf_set_ui(&expected, 1);
+  ASSERT(s21_mpf_cmp(&c, &expected) == 0, "cos(0) = 1");
+
+  /* sin(1) ≈ 0.8414709848078965 */
+  s21_mpf_set_d(&a, 1.0);
+  s21_mpf_sin(&s, &a);
+  s21_mpf_set_d(&expected, 0.8414709848078965);
+  s21_mpf_sub(&diff, &s, &expected);
+  s21_mpf_abs(&diff, &diff);
+  ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "sin(1) ≈ 0.84147");
+
+  /* cos(1) ≈ 0.5403023058681398 */
+  s21_mpf_cos(&c, &a);
+  s21_mpf_set_d(&expected, 0.5403023058681398);
+  s21_mpf_sub(&diff, &c, &expected);
+  s21_mpf_abs(&diff, &diff);
+  ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "cos(1) ≈ 0.54030");
+
+  /* sin(π/2) = 1 */
+  s21_mpf_pi(&pi);
+  s21_mpf_set(&a, &pi);
+  a.exp -= 1;
+  s21_mpf_normalize(&a);
+  s21_mpf_sin(&s, &a);
+  s21_mpf_set_ui(&expected, 1);
+  s21_mpf_sub(&diff, &s, &expected);
+  s21_mpf_abs(&diff, &diff);
+  ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "sin(π/2) ≈ 1");
+
+  /* cos(π) = -1 */
+  s21_mpf_cos(&c, &pi);
+  s21_mpf_set_si(&expected, -1);
+  s21_mpf_sub(&diff, &c, &expected);
+  s21_mpf_abs(&diff, &diff);
+  s21_mpf_set_d(&threshold, 1e-13);
+  ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "cos(π) ≈ -1");
+
+  /* sin(-x) = -sin(x) */
+  s21_mpf_set_d(&a, 2.5);
+  s21_mpf_sin(&s, &a);
+  s21_mpf_neg(&a, &a);
+  s21_mpf_sin(&expected, &a);
+  s21_mpf_neg(&expected, &expected);
+  ASSERT(s21_mpf_cmp(&s, &expected) == 0, "sin(-x) = -sin(x)");
+
+  /* sin(NaN) = NaN */
+  s21_mpf_set_nan(&a);
+  s21_mpf_sin(&s, &a);
+  ASSERT(s21_mpf_is_nan(&s), "sin(NaN) = NaN");
+
+  /* sin(+inf) = NaN */
+  s21_mpf_set_inf(&a, 0);
+  s21_mpf_sin(&s, &a);
+  ASSERT(s21_mpf_is_nan(&s), "sin(+inf) = NaN");
+
+  /* NULL checks */
+  ASSERT(s21_mpf_sin(NULL, &a) == -1, "sin: NULL res");
+  ASSERT(s21_mpf_sin(&s, NULL) == -1, "sin: NULL x");
+
+  s21_mpf_clear(&a);
+  s21_mpf_clear(&s);
+  s21_mpf_clear(&c);
+  s21_mpf_clear(&expected);
+  s21_mpf_clear(&diff);
+  s21_mpf_clear(&threshold);
+  s21_mpf_clear(&pi);
+  printf("[ok] sin / cos\n");
+}
+
+static void test_atan(void) {
+  s21_mpf_t a, at, expected, diff, threshold;
+  s21_mpf_init2(&a, 256);
+  s21_mpf_init2(&at, 256);
+  s21_mpf_init2(&expected, 256);
+  s21_mpf_init2(&diff, 256);
+  s21_mpf_init2(&threshold, 256);
+
+  s21_mpf_set_d(&threshold, 1e-14);
+
+  /* atan(0) = 0 */
+  s21_mpf_set_ui(&a, 0);
+  s21_mpf_atan(&at, &a);
+  ASSERT(s21_mpf_is_zero(&at), "atan(0) = 0");
+
+  /* atan(1) = π/4 ≈ 0.7853981633974483 */
+  s21_mpf_set_ui(&a, 1);
+  s21_mpf_atan(&at, &a);
+  s21_mpf_set_d(&expected, 0.7853981633974483);
+  s21_mpf_sub(&diff, &at, &expected);
+  s21_mpf_abs(&diff, &diff);
+  ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "atan(1) ≈ π/4");
+
+  /* atan(0.5) ≈ 0.4636476090008061 */
+  s21_mpf_set_d(&a, 0.5);
+  s21_mpf_atan(&at, &a);
+  s21_mpf_set_d(&expected, 0.4636476090008061);
+  s21_mpf_sub(&diff, &at, &expected);
+  s21_mpf_abs(&diff, &diff);
+  ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "atan(0.5) ≈ 0.46365");
+
+  /* atan(10) ≈ 1.4711276743037347 */
+  s21_mpf_set_ui(&a, 10);
+  s21_mpf_atan(&at, &a);
+  s21_mpf_set_d(&expected, 1.4711276743037347);
+  s21_mpf_sub(&diff, &at, &expected);
+  s21_mpf_abs(&diff, &diff);
+  ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "atan(10) ≈ 1.4711");
+
+  /* atan(-1) ≈ -π/4 */
+  s21_mpf_set_si(&a, -1);
+  s21_mpf_atan(&at, &a);
+  s21_mpf_set_d(&expected, -0.7853981633974483);
+  s21_mpf_sub(&diff, &at, &expected);
+  s21_mpf_abs(&diff, &diff);
+  ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "atan(-1) ≈ -π/4");
+
+  /* atan(+inf) = π/2 */
+  s21_mpf_set_inf(&a, 0);
+  s21_mpf_atan(&at, &a);
+  s21_mpf_set_d(&expected, 1.5707963267948966);
+  s21_mpf_sub(&diff, &at, &expected);
+  s21_mpf_abs(&diff, &diff);
+  ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "atan(+inf) ≈ π/2");
+
+  /* atan(-inf) = -π/2 */
+  s21_mpf_set_inf(&a, 1);
+  s21_mpf_atan(&at, &a);
+  s21_mpf_set_d(&expected, -1.5707963267948966);
+  s21_mpf_sub(&diff, &at, &expected);
+  s21_mpf_abs(&diff, &diff);
+  ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "atan(-inf) ≈ -π/2");
+
+  /* NULL checks */
+  ASSERT(s21_mpf_atan(NULL, &a) == -1, "atan: NULL res");
+  ASSERT(s21_mpf_atan(&at, NULL) == -1, "atan: NULL x");
+
+  s21_mpf_clear(&a);
+  s21_mpf_clear(&at);
+  s21_mpf_clear(&expected);
+  s21_mpf_clear(&diff);
+  s21_mpf_clear(&threshold);
+  printf("[ok] atan\n");
+}
+
+static void test_tan_asin_acos(void) {
+  s21_mpf_t a, r, expected, diff, threshold;
+  s21_mpf_init2(&a, 256);
+  s21_mpf_init2(&r, 256);
+  s21_mpf_init2(&expected, 256);
+  s21_mpf_init2(&diff, 256);
+  s21_mpf_init2(&threshold, 256);
+
+  s21_mpf_set_d(&threshold, 1e-14);
+
+  /* tan(0) = 0 */
+  s21_mpf_set_ui(&a, 0);
+  s21_mpf_tan(&r, &a);
+  ASSERT(s21_mpf_is_zero(&r), "tan(0) = 0");
+
+  /* tan(1) ≈ 1.5574077246549023 */
+  s21_mpf_set_d(&a, 1.0);
+  s21_mpf_tan(&r, &a);
+  s21_mpf_set_d(&expected, 1.5574077246549023);
+  s21_mpf_sub(&diff, &r, &expected);
+  s21_mpf_abs(&diff, &diff);
+  ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "tan(1) ≈ 1.5574");
+
+  /* asin(0) = 0 */
+  s21_mpf_set_ui(&a, 0);
+  s21_mpf_asin(&r, &a);
+  ASSERT(s21_mpf_is_zero(&r), "asin(0) = 0");
+
+  /* asin(0.5) ≈ 0.5235987755982989 (= π/6) */
+  s21_mpf_set_d(&a, 0.5);
+  s21_mpf_asin(&r, &a);
+  s21_mpf_set_d(&expected, 0.5235987755982989);
+  s21_mpf_sub(&diff, &r, &expected);
+  s21_mpf_abs(&diff, &diff);
+  ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "asin(0.5) ≈ π/6");
+
+  /* asin(1) ≈ π/2 */
+  s21_mpf_set_ui(&a, 1);
+  s21_mpf_asin(&r, &a);
+  s21_mpf_set_d(&expected, 1.5707963267948966);
+  s21_mpf_sub(&diff, &r, &expected);
+  s21_mpf_abs(&diff, &diff);
+  ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "asin(1) ≈ π/2");
+
+  /* asin(2) = NaN */
+  s21_mpf_set_ui(&a, 2);
+  s21_mpf_asin(&r, &a);
+  ASSERT(s21_mpf_is_nan(&r), "asin(2) = NaN");
+
+  /* acos(0) ≈ π/2 */
+  s21_mpf_set_ui(&a, 0);
+  s21_mpf_acos(&r, &a);
+  s21_mpf_set_d(&expected, 1.5707963267948966);
+  s21_mpf_sub(&diff, &r, &expected);
+  s21_mpf_abs(&diff, &diff);
+  ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "acos(0) ≈ π/2");
+
+  /* acos(1) = 0 */
+  s21_mpf_set_ui(&a, 1);
+  s21_mpf_acos(&r, &a);
+  ASSERT(s21_mpf_is_zero(&r), "acos(1) = 0");
+
+  /* acos(-1) ≈ π */
+  s21_mpf_set_si(&a, -1);
+  s21_mpf_acos(&r, &a);
+  s21_mpf_set_d(&expected, 3.141592653589793);
+  s21_mpf_sub(&diff, &r, &expected);
+  s21_mpf_abs(&diff, &diff);
+  ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "acos(-1) ≈ π");
+
+  /* acos(2) = NaN */
+  s21_mpf_set_ui(&a, 2);
+  s21_mpf_acos(&r, &a);
+  ASSERT(s21_mpf_is_nan(&r), "acos(2) = NaN");
+
+  /* NULL checks */
+  ASSERT(s21_mpf_tan(NULL, &a) == -1, "tan: NULL res");
+  ASSERT(s21_mpf_tan(&r, NULL) == -1, "tan: NULL x");
+  ASSERT(s21_mpf_asin(NULL, &a) == -1, "asin: NULL res");
+  ASSERT(s21_mpf_asin(&r, NULL) == -1, "asin: NULL x");
+  ASSERT(s21_mpf_acos(NULL, &a) == -1, "acos: NULL res");
+  ASSERT(s21_mpf_acos(&r, NULL) == -1, "acos: NULL x");
+
+  s21_mpf_clear(&a);
+  s21_mpf_clear(&r);
+  s21_mpf_clear(&expected);
+  s21_mpf_clear(&diff);
+  s21_mpf_clear(&threshold);
+  printf("[ok] tan / asin / acos\n");
+}
+
 int main(void) {
   printf("=== s21_mpf: базовые тесты ===\n");
   test_init_clear();
@@ -787,6 +1064,10 @@ int main(void) {
   test_sqrt();
   test_exp();
   test_log();
+  test_pi();
+  test_sin_cos();
+  test_atan();
+  test_tan_asin_acos();
   printf("=== Все тесты прошли ===\n");
   return 0;
 }
