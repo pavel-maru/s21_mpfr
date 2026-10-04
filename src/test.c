@@ -149,7 +149,6 @@ static void test_cmp(void) {
   s21_mpf_set_inf(&a, 1);
   ASSERT(s21_mpf_cmp(&a, &b) == -1, "-inf < 999999");
 
-  /* integer_p */
   s21_mpf_set_ui(&a, 100);
   ASSERT(s21_mpf_integer_p(&a), "100 — целое");
 
@@ -183,73 +182,62 @@ static void test_add_sub(void) {
   s21_mpf_init2(&c, 256);
   s21_mpf_init2(&expected, 256);
 
-  /* 2 + 3 = 5 */
   s21_mpf_set_ui(&a, 2);
   s21_mpf_set_ui(&b, 3);
   s21_mpf_add(&c, &a, &b);
   s21_mpf_set_ui(&expected, 5);
   ASSERT(s21_mpf_cmp(&c, &expected) == 0, "2 + 3 = 5");
 
-  /* 10 - 4 = 6 */
   s21_mpf_set_ui(&a, 10);
   s21_mpf_set_ui(&b, 4);
   s21_mpf_sub(&c, &a, &b);
   s21_mpf_set_ui(&expected, 6);
   ASSERT(s21_mpf_cmp(&c, &expected) == 0, "10 - 4 = 6");
 
-  /* 5 + (-3) = 2 */
   s21_mpf_set_ui(&a, 5);
   s21_mpf_set_si(&b, -3);
   s21_mpf_add(&c, &a, &b);
   s21_mpf_set_ui(&expected, 2);
   ASSERT(s21_mpf_cmp(&c, &expected) == 0, "5 + (-3) = 2");
 
-  /* 3 - 5 = -2 */
   s21_mpf_set_ui(&a, 3);
   s21_mpf_set_ui(&b, 5);
   s21_mpf_sub(&c, &a, &b);
   s21_mpf_set_si(&expected, -2);
   ASSERT(s21_mpf_cmp(&c, &expected) == 0, "3 - 5 = -2");
 
-  /* 5 - 5 = 0 */
   s21_mpf_set_ui(&a, 5);
   s21_mpf_set_ui(&b, 5);
   s21_mpf_sub(&c, &a, &b);
   ASSERT(s21_mpf_is_zero(&c), "5 - 5 = 0");
 
-  /* 0 + 42 = 42 */
   s21_mpf_set_ui(&a, 0);
   s21_mpf_set_ui(&b, 42);
   s21_mpf_add(&c, &a, &b);
   s21_mpf_set_ui(&expected, 42);
   ASSERT(s21_mpf_cmp(&c, &expected) == 0, "0 + 42 = 42");
 
-  /* Большие числа: 1000000 + 999999 = 1999999 */
   s21_mpf_set_ui(&a, 1000000);
   s21_mpf_set_ui(&b, 999999);
   s21_mpf_add(&c, &a, &b);
   s21_mpf_set_ui(&expected, 1999999);
   ASSERT(s21_mpf_cmp(&c, &expected) == 0, "1000000 + 999999 = 1999999");
 
-  /* inf + 1 = inf */
   s21_mpf_set_inf(&a, 0);
   s21_mpf_set_ui(&b, 1);
   s21_mpf_add(&c, &a, &b);
   ASSERT(s21_mpf_is_inf(&c) && c.sign == 0, "inf + 1 = inf");
 
-  /* inf + (-inf) = NaN */
   s21_mpf_set_inf(&a, 0);
   s21_mpf_set_inf(&b, 1);
   s21_mpf_add(&c, &a, &b);
   ASSERT(s21_mpf_is_nan(&c), "inf + (-inf) = NaN");
 
-  /* neg */
   s21_mpf_set_si(&a, -7);
   s21_mpf_neg(&b, &a);
   s21_mpf_set_ui(&expected, 7);
   ASSERT(s21_mpf_cmp(&b, &expected) == 0, "-(-7) = 7");
 
-  /* abs */
   s21_mpf_set_si(&a, -7);
   s21_mpf_abs(&b, &a);
   ASSERT(s21_mpf_cmp(&b, &expected) == 0, "|-7| = 7");
@@ -259,6 +247,83 @@ static void test_add_sub(void) {
   s21_mpf_clear(&c);
   s21_mpf_clear(&expected);
   printf("[ok] add / sub / neg / abs\n");
+}
+
+static void test_mul(void) {
+  s21_mpf_t a, b, c, expected;
+  s21_mpf_init2(&a, 256);
+  s21_mpf_init2(&b, 256);
+  s21_mpf_init2(&c, 256);
+  s21_mpf_init2(&expected, 256);
+
+  s21_mpf_set_ui(&a, 2);
+  s21_mpf_set_ui(&b, 3);
+  s21_mpf_mul(&c, &a, &b);
+  s21_mpf_set_ui(&expected, 6);
+  ASSERT(s21_mpf_cmp(&c, &expected) == 0, "2 * 3 = 6");
+
+  s21_mpf_set_ui(&a, 10);
+  s21_mpf_set_ui(&b, 10);
+  s21_mpf_mul(&c, &a, &b);
+  s21_mpf_set_ui(&expected, 100);
+  ASSERT(s21_mpf_cmp(&c, &expected) == 0, "10 * 10 = 100");
+
+  s21_mpf_set_si(&a, -3);
+  s21_mpf_set_ui(&b, 4);
+  s21_mpf_mul(&c, &a, &b);
+  s21_mpf_set_si(&expected, -12);
+  ASSERT(s21_mpf_cmp(&c, &expected) == 0, "-3 * 4 = -12");
+
+  s21_mpf_set_si(&a, -3);
+  s21_mpf_set_si(&b, -4);
+  s21_mpf_mul(&c, &a, &b);
+  s21_mpf_set_ui(&expected, 12);
+  ASSERT(s21_mpf_cmp(&c, &expected) == 0, "-3 * (-4) = 12");
+
+  s21_mpf_set_ui(&a, 0);
+  s21_mpf_set_ui(&b, 5);
+  s21_mpf_mul(&c, &a, &b);
+  ASSERT(s21_mpf_is_zero(&c), "0 * 5 = 0");
+
+  s21_mpf_set_ui(&a, 1);
+  s21_mpf_set_ui(&b, 1);
+  s21_mpf_mul(&c, &a, &b);
+  s21_mpf_set_ui(&expected, 1);
+  ASSERT(s21_mpf_cmp(&c, &expected) == 0, "1 * 1 = 1");
+
+  s21_mpf_set_ui(&a, 12345);
+  s21_mpf_set_ui(&b, 6789);
+  s21_mpf_mul(&c, &a, &b);
+  s21_mpf_set_ui(&expected, 83810205);
+  ASSERT(s21_mpf_cmp(&c, &expected) == 0, "12345 * 6789 = 83810205");
+
+  s21_mpf_set_ui(&a, 123456789);
+  s21_mpf_set_ui(&b, 987654321);
+  s21_mpf_mul(&c, &a, &b);
+  s21_mpf_set_ui(&expected, 121932631112635269UL);
+  ASSERT(s21_mpf_cmp(&c, &expected) == 0,
+         "123456789 * 987654321 = 121932631112635269");
+
+  s21_mpf_set_inf(&a, 0);
+  s21_mpf_set_ui(&b, 5);
+  s21_mpf_mul(&c, &a, &b);
+  ASSERT(s21_mpf_is_inf(&c) && c.sign == 0, "inf * 5 = inf");
+
+  s21_mpf_set_inf(&a, 0);
+  s21_mpf_set_ui(&b, 0);
+  s21_mpf_mul(&c, &a, &b);
+  ASSERT(s21_mpf_is_nan(&c), "inf * 0 = NaN");
+
+  s21_mpf_set_inf(&a, 0);
+  s21_mpf_set_si(&b, -1);
+  s21_mpf_mul(&c, &a, &b);
+  ASSERT(s21_mpf_is_inf(&c) && c.sign == 1, "inf * (-1) = -inf");
+
+  s21_mpf_clear(&a);
+  s21_mpf_clear(&b);
+  s21_mpf_clear(&c);
+  s21_mpf_clear(&expected);
+  printf("[ok] mul\n");
 }
 
 int main(void) {
@@ -271,6 +336,7 @@ int main(void) {
   test_precision();
   test_cmp();
   test_add_sub();
+  test_mul();
   printf("=== Все тесты прошли ===\n");
   return 0;
 }

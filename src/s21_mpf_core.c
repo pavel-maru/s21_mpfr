@@ -84,13 +84,8 @@ int s21_mpf_lsb(const s21_mpf_t *x) {
 
 /* ============================================================
    Нормализация мантиссы
-   ============================================================
+   ============================================================ */
 
-   Приводит число к каноническому виду:
-     - старший бит мантиссы стоит на позиции (prec - 1)
-     - все биты выше prec нулевые
-     - exp скорректирован так, что значение не изменилось
-     - kind установлен в NORMAL (или ZERO, если всё нулевое) */
 void s21_mpf_normalize(s21_mpf_t *x) {
   size_t count = s21_mpf_limbs_for_prec(x->prec);
   int last = (int)count - 1;
@@ -202,9 +197,6 @@ void s21_mpf_set_si(s21_mpf_t *x, long v) {
   }
 }
 
-/* Разбор double на компоненты:
-   v = (-1)^sign * mant * 2^(exp - 53), где mant — 53-битное
-   целое со старшим установленным битом. */
 static void s21_decompose_double(double v, uint64_t *mant, int64_t *exp,
                                   int *sign) {
   union {
@@ -291,9 +283,6 @@ uint32_t s21_mpf_get_prec(const s21_mpf_t *x) { return x->prec; }
    Сравнение
    ============================================================ */
 
-/* Сравнение мантисс побитово, начиная со старшего бита.
-   Предполагается, что x->prec == y->prec и обе мантиссы
-   нормализованы (старший значащий бит на позиции prec-1). */
 static int s21_mpf_cmp_mant(const s21_mpf_t *x, const s21_mpf_t *y) {
   size_t count = s21_mpf_limbs_for_prec(x->prec);
   for (int i = (int)count - 1; i >= 0; i--) {
@@ -303,8 +292,6 @@ static int s21_mpf_cmp_mant(const s21_mpf_t *x, const s21_mpf_t *y) {
   return 0;
 }
 
-/* Сравнение по абсолютной величине. Требует, чтобы x и y имели
-   одинаковую точность. Для разных точностей — временно через double. */
 int s21_mpf_cmp_abs(const s21_mpf_t *x, const s21_mpf_t *y) {
   if (x->kind == S21_MPF_NAN || y->kind == S21_MPF_NAN) return 0;
 
@@ -401,8 +388,6 @@ int s21_mpf_integer_p(const s21_mpf_t *x) {
    Вспомогательные функции для арифметики
    ============================================================ */
 
-/* Сдвиг мантиссы вправо на shift бит: dst = src >> shift.
-   Старшие биты заполняются нулями. */
 static void s21_mpf_shift_right_into(uint64_t *dst, const uint64_t *src,
                                      size_t count, int shift) {
   if (shift == 0) {
@@ -428,7 +413,6 @@ static void s21_mpf_shift_right_into(uint64_t *dst, const uint64_t *src,
   }
 }
 
-/* |x| + |y|. Оба NORMAL. Результат в res (sign=0). */
 static void s21_mpf_add_magnitude(s21_mpf_t *res, const s21_mpf_t *x,
                                   const s21_mpf_t *y) {
   const s21_mpf_t *a = x, *b = y;
@@ -473,7 +457,6 @@ static void s21_mpf_add_magnitude(s21_mpf_t *res, const s21_mpf_t *x,
   s21_mpf_normalize(res);
 }
 
-/* |x| - |y|. Требует |x| >= |y|, оба NORMAL. Результат в res (sign=0). */
 static void s21_mpf_sub_magnitude(s21_mpf_t *res, const s21_mpf_t *x,
                                   const s21_mpf_t *y) {
   const s21_mpf_t *a = x, *b = y;
@@ -596,6 +579,94 @@ int s21_mpf_sub(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
   int rc = s21_mpf_add(res, x, &neg_y);
   s21_mpf_clear(&neg_y);
   return rc;
+}
+
+/* ============================================================
+   Умножение
+   ============================================================ */
+
+/* Умножение мантисс как целых чисел: prod = a * b.
+   prod имеет размер 2*count и обнуляется внутри. */
+static void s21_mpf_mul_mant(uint64_t *prod, const uint64_t *a,
+                             const uint64_t *b, size_t count) {
+  memset(prod, 0, 2 * count * sizeof(uint64_t));
+
+  for (size_t i = 0; i < count; i++) {
+    uint64_t carry = 0;
+    for (size_t j = 0; j < count; j++) {
+      unsigned __int128 p =
+          (unsigned __int128)a[i] * b[j] + prod[i + j] + carry;
+      prod[i + j] = (uint64_t)p;
+      carry = (uint64_t)(p >> 64);
+    }
+    size_t k = i + count;
+    while (carry != 0 && k < 2 * count) {
+      unsigned __int128 s = (unsigned __int128)prod[k] + carry;
+      prod[k] = (uint64_t)s;
+      carry = (uint64_t)(s >> 64);
+      k++;
+    }
+  }
+}
+
+int s21_mpf_mul(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
+  if (res->prec != x->prec || x->prec != y->prec) return -1;
+
+  if (x->kind == S21_MPF_NAN || y->kind == S21_MPF_NAN) {
+    s21_mpf_set_nan(res);
+    return 0;
+  }
+  if (x->kind == S21_MPF_INF || y->kind == S21_MPF_INF) {
+    int other_zero = (x->kind == S21_MPF_INF && y->kind == S21_MPF_ZERO) ||
+                     (y->kind == S21_MPF_INF && x->kind == S21_MPF_ZERO);
+    if (other_zero) {
+      s21_mpf_set_nan(res);
+    } else {
+      s21_mpf_set_inf(res, x->sign ^ y->sign);
+    }
+    return 0;
+  }
+  if (x->kind == S21_MPF_ZERO || y->kind == S21_MPF_ZERO) {
+    s21_mpf_set_zero(res, x->sign ^ y->sign);
+    return 0;
+  }
+
+  size_t count = s21_mpf_limbs_for_prec(res->prec);
+  uint64_t *prod = malloc(2 * count * sizeof(uint64_t));
+  s21_mpf_mul_mant(prod, x->limbs, y->limbs, count);
+
+  /* Берём старшие prec бит произведения: сдвиг вправо на prec бит. */
+  uint32_t word_shift = res->prec / 64;
+  uint32_t bit_shift = res->prec % 64;
+
+  for (size_t i = 0; i < count; i++) {
+    int src = (int)i + (int)word_shift;
+    if (src >= (int)(2 * count)) {
+      res->limbs[i] = 0;
+    } else {
+      uint64_t v = prod[src];
+      if (bit_shift && src + 1 < (int)(2 * count)) {
+        v = (v >> bit_shift) | (prod[src + 1] << (64 - bit_shift));
+      } else if (bit_shift) {
+        v >>= bit_shift;
+      }
+      res->limbs[i] = v;
+    }
+  }
+  free(prod);
+
+  uint32_t mask_bits = res->prec % 64;
+  if (mask_bits != 0) {
+    uint64_t mask = (1ULL << mask_bits) - 1;
+    res->limbs[count - 1] &= mask;
+  }
+
+  res->exp = x->exp + y->exp;
+  res->sign = x->sign ^ y->sign;
+  res->kind = S21_MPF_NORMAL;
+  s21_mpf_normalize(res);
+
+  return 0;
 }
 
 /* ============================================================
