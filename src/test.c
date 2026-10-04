@@ -522,6 +522,173 @@ static void test_bit_utils(void) {
   printf("[ok] bit utilities\n");
 }
 
+static void test_sqrt(void) {
+  s21_mpf_t a, s, expected;
+  s21_mpf_init2(&a, 256);
+  s21_mpf_init2(&s, 256);
+  s21_mpf_init2(&expected, 256);
+
+  /* sqrt(4) = 2 */
+  s21_mpf_set_ui(&a, 4);
+  s21_mpf_sqrt(&s, &a);
+  s21_mpf_set_ui(&expected, 2);
+  ASSERT(s21_mpf_cmp(&s, &expected) == 0, "sqrt(4) = 2");
+
+  /* sqrt(9) = 3 */
+  s21_mpf_set_ui(&a, 9);
+  s21_mpf_sqrt(&s, &a);
+  s21_mpf_set_ui(&expected, 3);
+  ASSERT(s21_mpf_cmp(&s, &expected) == 0, "sqrt(9) = 3");
+
+  /* sqrt(16) = 4 */
+  s21_mpf_set_ui(&a, 16);
+  s21_mpf_sqrt(&s, &a);
+  s21_mpf_set_ui(&expected, 4);
+  ASSERT(s21_mpf_cmp(&s, &expected) == 0, "sqrt(16) = 4");
+
+  /* sqrt(1000000) = 1000 */
+  s21_mpf_set_ui(&a, 1000000);
+  s21_mpf_sqrt(&s, &a);
+  s21_mpf_set_ui(&expected, 1000);
+  ASSERT(s21_mpf_cmp(&s, &expected) == 0, "sqrt(1e6) = 1000");
+
+  /* sqrt(144) = 12 */
+  s21_mpf_set_ui(&a, 144);
+  s21_mpf_sqrt(&s, &a);
+  s21_mpf_set_ui(&expected, 12);
+  ASSERT(s21_mpf_cmp(&s, &expected) == 0, "sqrt(144) = 12");
+
+  /* sqrt(1) = 1 */
+  s21_mpf_set_ui(&a, 1);
+  s21_mpf_sqrt(&s, &a);
+  s21_mpf_set_ui(&expected, 1);
+  ASSERT(s21_mpf_cmp(&s, &expected) == 0, "sqrt(1) = 1");
+
+  /* sqrt(0) = 0 */
+  s21_mpf_set_ui(&a, 0);
+  s21_mpf_sqrt(&s, &a);
+  ASSERT(s21_mpf_is_zero(&s), "sqrt(0) = 0");
+
+  /* sqrt(-1) = NaN */
+  s21_mpf_set_si(&a, -1);
+  s21_mpf_sqrt(&s, &a);
+  ASSERT(s21_mpf_is_nan(&s), "sqrt(-1) = NaN");
+
+  /* sqrt(+inf) = +inf */
+  s21_mpf_set_inf(&a, 0);
+  s21_mpf_sqrt(&s, &a);
+  ASSERT(s21_mpf_is_inf(&s) && s.sign == 0, "sqrt(+inf) = +inf");
+
+  /* sqrt(NaN) = NaN */
+  s21_mpf_set_nan(&a);
+  s21_mpf_sqrt(&s, &a);
+  ASSERT(s21_mpf_is_nan(&s), "sqrt(NaN) = NaN");
+
+  /* sqrt(2) — иррациональное. Проверяем, что s*s ≈ 2 */
+  s21_mpf_set_ui(&a, 2);
+  s21_mpf_sqrt(&s, &a);
+  s21_mpf_t sq;
+  s21_mpf_init2(&sq, 256);
+  s21_mpf_mul(&sq, &s, &s);
+  s21_mpf_set_ui(&expected, 2);
+  s21_mpf_t diff;
+  s21_mpf_init2(&diff, 256);
+  s21_mpf_sub(&diff, &sq, &expected);
+  s21_mpf_abs(&diff, &diff);
+  s21_mpf_t threshold;
+  s21_mpf_init2(&threshold, 256);
+  s21_mpf_set_d(&threshold, 1e-60);
+  ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "sqrt(2)^2 ≈ 2");
+  s21_mpf_clear(&diff);
+  s21_mpf_clear(&threshold);
+  s21_mpf_clear(&sq);
+
+  /* NULL checks */
+  ASSERT(s21_mpf_sqrt(NULL, &a) == -1, "sqrt: NULL res");
+  ASSERT(s21_mpf_sqrt(&s, NULL) == -1, "sqrt: NULL x");
+
+  s21_mpf_clear(&a);
+  s21_mpf_clear(&s);
+  s21_mpf_clear(&expected);
+  printf("[ok] sqrt\n");
+}
+
+static void test_exp(void) {
+  s21_mpf_t a, e, expected, diff, threshold;
+  s21_mpf_init2(&a, 256);
+  s21_mpf_init2(&e, 256);
+  s21_mpf_init2(&expected, 256);
+  s21_mpf_init2(&diff, 256);
+  s21_mpf_init2(&threshold, 256);
+
+  /* exp(0) = 1 */
+  s21_mpf_set_ui(&a, 0);
+  s21_mpf_exp(&e, &a);
+  s21_mpf_set_ui(&expected, 1);
+  ASSERT(s21_mpf_cmp(&e, &expected) == 0, "exp(0) = 1");
+
+  /* exp(1) ≈ e ≈ 2.718281828459045 */
+  s21_mpf_set_ui(&a, 1);
+  s21_mpf_exp(&e, &a);
+  s21_mpf_set_d(&expected, 2.718281828459045);
+  s21_mpf_sub(&diff, &e, &expected);
+  s21_mpf_abs(&diff, &diff);
+  s21_mpf_set_d(&threshold, 1e-14);
+  ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "exp(1) ≈ e");
+
+  /* exp(-1) ≈ 0.367879441171442 */
+  s21_mpf_set_si(&a, -1);
+  s21_mpf_exp(&e, &a);
+  s21_mpf_set_d(&expected, 0.367879441171442);
+  s21_mpf_sub(&diff, &e, &expected);
+  s21_mpf_abs(&diff, &diff);
+  ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "exp(-1) ≈ 1/e");
+
+  /* exp(2) ≈ 7.389056098930650 */
+  s21_mpf_set_ui(&a, 2);
+  s21_mpf_exp(&e, &a);
+  s21_mpf_set_d(&expected, 7.389056098930650);
+  s21_mpf_sub(&diff, &e, &expected);
+  s21_mpf_abs(&diff, &diff);
+  s21_mpf_set_d(&threshold, 1e-13);
+  ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "exp(2) ≈ 7.389");
+
+  /* exp(10) ≈ 22026.465794806718 */
+  s21_mpf_set_ui(&a, 10);
+  s21_mpf_exp(&e, &a);
+  s21_mpf_set_d(&expected, 22026.465794806718);
+  s21_mpf_sub(&diff, &e, &expected);
+  s21_mpf_abs(&diff, &diff);
+  s21_mpf_set_d(&threshold, 1e-10);
+  ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "exp(10) ≈ 22026.5");
+
+  /* exp(NaN) = NaN */
+  s21_mpf_set_nan(&a);
+  s21_mpf_exp(&e, &a);
+  ASSERT(s21_mpf_is_nan(&e), "exp(NaN) = NaN");
+
+  /* exp(+inf) = +inf */
+  s21_mpf_set_inf(&a, 0);
+  s21_mpf_exp(&e, &a);
+  ASSERT(s21_mpf_is_inf(&e) && e.sign == 0, "exp(+inf) = +inf");
+
+  /* exp(-inf) = 0 */
+  s21_mpf_set_inf(&a, 1);
+  s21_mpf_exp(&e, &a);
+  ASSERT(s21_mpf_is_zero(&e), "exp(-inf) = 0");
+
+  /* NULL checks */
+  ASSERT(s21_mpf_exp(NULL, &a) == -1, "exp: NULL res");
+  ASSERT(s21_mpf_exp(&e, NULL) == -1, "exp: NULL x");
+
+  s21_mpf_clear(&a);
+  s21_mpf_clear(&e);
+  s21_mpf_clear(&expected);
+  s21_mpf_clear(&diff);
+  s21_mpf_clear(&threshold);
+  printf("[ok] exp\n");
+}
+
 int main(void) {
   printf("=== s21_mpf: базовые тесты ===\n");
   test_init_clear();
@@ -536,6 +703,8 @@ int main(void) {
   test_div();
   test_null_checks();
   test_bit_utils();
+  test_sqrt();
+  test_exp();
   printf("=== Все тесты прошли ===\n");
   return 0;
 }

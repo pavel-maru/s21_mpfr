@@ -111,6 +111,12 @@ int s21_mpf_mul(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y);
 /* res = x / y. */
 int s21_mpf_div(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y);
 
+/* res = sqrt(x). x >= 0. */
+int s21_mpf_sqrt(s21_mpf_t *res, const s21_mpf_t *x);
+
+/* res = exp(x). */
+int s21_mpf_exp(s21_mpf_t *res, const s21_mpf_t *x);
+
 /* res = -x */
 void s21_mpf_neg(s21_mpf_t *res, const s21_mpf_t *x);
 

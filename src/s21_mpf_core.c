@@ -32,7 +32,6 @@ void s21_mpf_clear(s21_mpf_t *x) {
   x->kind = S21_MPF_ZERO;
 }
 
-/* Смена точности. TODO: правильное округление при уменьшении prec. */
 void s21_mpf_set_prec(s21_mpf_t *x, uint32_t prec) {
   if (prec < 2) prec = 2;
   if (prec == x->prec) return;
@@ -255,22 +254,10 @@ static void s21_decompose_double(double v, uint64_t *mant, int64_t *exp,
 }
 
 void s21_mpf_set_d(s21_mpf_t *x, double v) {
-  if (v != v) {
-    s21_mpf_set_nan(x);
-    return;
-  }
-  if (v == 1.0 / 0.0) {
-    s21_mpf_set_inf(x, 0);
-    return;
-  }
-  if (v == -1.0 / 0.0) {
-    s21_mpf_set_inf(x, 1);
-    return;
-  }
-  if (v == 0.0) {
-    s21_mpf_set_zero(x, (1.0 / v < 0) ? 1 : 0);
-    return;
-  }
+  if (v != v) { s21_mpf_set_nan(x); return; }
+  if (v == 1.0 / 0.0) { s21_mpf_set_inf(x, 0); return; }
+  if (v == -1.0 / 0.0) { s21_mpf_set_inf(x, 1); return; }
+  if (v == 0.0) { s21_mpf_set_zero(x, (1.0 / v < 0) ? 1 : 0); return; }
 
   uint64_t mant_d;
   int64_t exp_d;
@@ -287,17 +274,12 @@ void s21_mpf_set_d(s21_mpf_t *x, double v) {
   s21_mpf_normalize(x);
 }
 
-/* Универсальное присваивание с приведением точности.
-   Инвариант: x = mant * 2^(exp - prec). При смене prec мантисса
-   сдвигается так, чтобы старший бит остался на позиции (prec-1),
-   а exp НЕ меняется. */
 void s21_mpf_set(s21_mpf_t *dst, const s21_mpf_t *src) {
   if (dst == src) return;
 
   size_t dst_count = s21_mpf_limbs_for_prec(dst->prec);
   memset(dst->limbs, 0, dst_count * sizeof(uint64_t));
 
-  /* Особые случаи и совпадающие точности — простое копирование */
   if (src->kind != S21_MPF_NORMAL || dst->prec == src->prec) {
     size_t src_count = s21_mpf_limbs_for_prec(src->prec);
     size_t n = dst_count < src_count ? dst_count : src_count;
@@ -311,14 +293,10 @@ void s21_mpf_set(s21_mpf_t *dst, const s21_mpf_t *src) {
   size_t src_count = s21_mpf_limbs_for_prec(src->prec);
 
   if (dst->prec > src->prec) {
-    /* Сдвиг влево: старший бит src на позиции (src->prec - 1),
-       после сдвига на (dst->prec - src->prec) окажется на (dst->prec - 1).
-       exp при этом не меняется. */
     int shift = (int)(dst->prec - src->prec);
     s21_mpf_shift_left_into(dst->limbs, src->limbs, dst_count, shift);
     dst->exp = src->exp;
   } else {
-    /* Сдвиг вправо (RNDZ): теряем младшие биты, exp не меняется */
     int shift = (int)(src->prec - dst->prec);
     int word_shift = shift / 64;
     int bit_shift = shift % 64;
@@ -339,7 +317,6 @@ void s21_mpf_set(s21_mpf_t *dst, const s21_mpf_t *src) {
     dst->exp = src->exp;
   }
 
-  /* Отрезаем лишние биты выше dst->prec */
   uint32_t mask_bits = dst->prec % 64;
   if (mask_bits != 0 && dst_count > 0) {
     dst->limbs[dst_count - 1] &= (1ULL << mask_bits) - 1;
@@ -396,9 +373,7 @@ int s21_mpf_cmp_abs(const s21_mpf_t *x, const s21_mpf_t *y) {
   if (x->exp < y->exp) return -1;
   if (x->exp > y->exp) return 1;
 
-  if (x->prec == y->prec) {
-    return s21_mpf_cmp_mant(x, y);
-  }
+  if (x->prec == y->prec) return s21_mpf_cmp_mant(x, y);
 
   double xd = 0, yd = 0;
   {
@@ -436,7 +411,6 @@ int s21_mpf_equal(const s21_mpf_t *x, const s21_mpf_t *y) {
   if (x->kind == S21_MPF_NAN || y->kind == S21_MPF_NAN) return 0;
   if (x->kind != y->kind) return 0;
   if (x->kind == S21_MPF_ZERO) return 1;
-
   if (x->kind == S21_MPF_INF) return x->sign == y->sign;
   if (x->sign != y->sign) return 0;
   if (x->prec != y->prec) return 0;
@@ -449,7 +423,6 @@ int s21_mpf_zero_p(const s21_mpf_t *x) { return x->kind == S21_MPF_ZERO; }
 int s21_mpf_integer_p(const s21_mpf_t *x) {
   if (x->kind == S21_MPF_ZERO) return 1;
   if (x->kind != S21_MPF_NORMAL) return 0;
-
   if (x->exp >= (int64_t)x->prec) return 1;
 
   int64_t fractional_bits = (int64_t)x->prec - x->exp;
@@ -607,33 +580,17 @@ int s21_mpf_add(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
   if (res->prec != x->prec || x->prec != y->prec) return -1;
 
   if (x->kind == S21_MPF_NAN || y->kind == S21_MPF_NAN) {
-    s21_mpf_set_nan(res);
-    return 0;
+    s21_mpf_set_nan(res); return 0;
   }
   if (x->kind == S21_MPF_INF && y->kind == S21_MPF_INF) {
-    if (x->sign == y->sign) {
-      s21_mpf_set_inf(res, x->sign);
-    } else {
-      s21_mpf_set_nan(res);
-    }
+    if (x->sign == y->sign) s21_mpf_set_inf(res, x->sign);
+    else s21_mpf_set_nan(res);
     return 0;
   }
-  if (x->kind == S21_MPF_INF) {
-    s21_mpf_set_inf(res, x->sign);
-    return 0;
-  }
-  if (y->kind == S21_MPF_INF) {
-    s21_mpf_set_inf(res, y->sign);
-    return 0;
-  }
-  if (x->kind == S21_MPF_ZERO) {
-    s21_mpf_set(res, y);
-    return 0;
-  }
-  if (y->kind == S21_MPF_ZERO) {
-    s21_mpf_set(res, x);
-    return 0;
-  }
+  if (x->kind == S21_MPF_INF) { s21_mpf_set_inf(res, x->sign); return 0; }
+  if (y->kind == S21_MPF_INF) { s21_mpf_set_inf(res, y->sign); return 0; }
+  if (x->kind == S21_MPF_ZERO) { s21_mpf_set(res, y); return 0; }
+  if (y->kind == S21_MPF_ZERO) { s21_mpf_set(res, x); return 0; }
 
   s21_mpf_t tmp;
   s21_mpf_init2(&tmp, x->prec);
@@ -671,10 +628,6 @@ int s21_mpf_sub(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
   return rc;
 }
 
-/* ============================================================
-   Умножение
-   ============================================================ */
-
 static void s21_mpf_mul_mant(uint64_t *prod, const uint64_t *a,
                              const uint64_t *b, size_t count) {
   memset(prod, 0, 2 * count * sizeof(uint64_t));
@@ -702,22 +655,17 @@ int s21_mpf_mul(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
   if (res->prec != x->prec || x->prec != y->prec) return -1;
 
   if (x->kind == S21_MPF_NAN || y->kind == S21_MPF_NAN) {
-    s21_mpf_set_nan(res);
-    return 0;
+    s21_mpf_set_nan(res); return 0;
   }
   if (x->kind == S21_MPF_INF || y->kind == S21_MPF_INF) {
     int other_zero = (x->kind == S21_MPF_INF && y->kind == S21_MPF_ZERO) ||
                      (y->kind == S21_MPF_INF && x->kind == S21_MPF_ZERO);
-    if (other_zero) {
-      s21_mpf_set_nan(res);
-    } else {
-      s21_mpf_set_inf(res, x->sign ^ y->sign);
-    }
+    if (other_zero) s21_mpf_set_nan(res);
+    else s21_mpf_set_inf(res, x->sign ^ y->sign);
     return 0;
   }
   if (x->kind == S21_MPF_ZERO || y->kind == S21_MPF_ZERO) {
-    s21_mpf_set_zero(res, x->sign ^ y->sign);
-    return 0;
+    s21_mpf_set_zero(res, x->sign ^ y->sign); return 0;
   }
 
   size_t count = s21_mpf_limbs_for_prec(res->prec);
@@ -753,45 +701,32 @@ int s21_mpf_mul(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
   res->sign = x->sign ^ y->sign;
   res->kind = S21_MPF_NORMAL;
   s21_mpf_normalize(res);
-
   return 0;
 }
-
-/* ============================================================
-   Деление
-   ============================================================ */
 
 int s21_mpf_div(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
   if (res == NULL || x == NULL || y == NULL) return -1;
   if (res->prec != x->prec || x->prec != y->prec) return -1;
 
   if (x->kind == S21_MPF_NAN || y->kind == S21_MPF_NAN) {
-    s21_mpf_set_nan(res);
-    return 0;
+    s21_mpf_set_nan(res); return 0;
   }
   if (x->kind == S21_MPF_INF && y->kind == S21_MPF_INF) {
-    s21_mpf_set_nan(res);
-    return 0;
+    s21_mpf_set_nan(res); return 0;
   }
   if (x->kind == S21_MPF_INF) {
-    s21_mpf_set_inf(res, x->sign ^ y->sign);
-    return 0;
+    s21_mpf_set_inf(res, x->sign ^ y->sign); return 0;
   }
   if (y->kind == S21_MPF_INF) {
-    s21_mpf_set_zero(res, x->sign ^ y->sign);
-    return 0;
+    s21_mpf_set_zero(res, x->sign ^ y->sign); return 0;
   }
   if (y->kind == S21_MPF_ZERO) {
-    if (x->kind == S21_MPF_ZERO) {
-      s21_mpf_set_nan(res);
-    } else {
-      s21_mpf_set_inf(res, x->sign ^ y->sign);
-    }
+    if (x->kind == S21_MPF_ZERO) s21_mpf_set_nan(res);
+    else s21_mpf_set_inf(res, x->sign ^ y->sign);
     return 0;
   }
   if (x->kind == S21_MPF_ZERO) {
-    s21_mpf_set_zero(res, x->sign ^ y->sign);
-    return 0;
+    s21_mpf_set_zero(res, x->sign ^ y->sign); return 0;
   }
 
   uint32_t prec = res->prec;
@@ -817,14 +752,8 @@ int s21_mpf_div(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
     if (!geq) {
       geq = 1;
       for (int w = (int)count - 1; w >= 0; w--) {
-        if (rem[w] < y->limbs[w]) {
-          geq = 0;
-          break;
-        }
-        if (rem[w] > y->limbs[w]) {
-          geq = 1;
-          break;
-        }
+        if (rem[w] < y->limbs[w]) { geq = 0; break; }
+        if (rem[w] > y->limbs[w]) { geq = 1; break; }
       }
     }
 
@@ -869,7 +798,6 @@ int s21_mpf_div(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
   res->sign = x->sign ^ y->sign;
   res->kind = S21_MPF_NORMAL;
   s21_mpf_normalize(res);
-
   return 0;
 }
 
@@ -877,9 +805,6 @@ int s21_mpf_div(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
    Квадратный корень
    ============================================================ */
 
-/* Округление src (prec = src->prec) до target_prec = res->prec.
-   Режим RNDZ (truncation). Использует s21_mpf_set, который
-   корректно обрабатывает разные точности. */
 static int s21_mpf_round_to_prec(s21_mpf_t *res, const s21_mpf_t *src,
                                  uint32_t target_prec) {
   if (res->prec != target_prec) return -1;
@@ -895,22 +820,10 @@ static int s21_mpf_round_to_prec(s21_mpf_t *res, const s21_mpf_t *src,
 int s21_mpf_sqrt(s21_mpf_t *res, const s21_mpf_t *x) {
   if (res == NULL || x == NULL) return -1;
 
-  if (x->kind == S21_MPF_NAN) {
-    s21_mpf_set_nan(res);
-    return 0;
-  }
-  if (x->kind == S21_MPF_ZERO) {
-    s21_mpf_set_zero(res, 0);
-    return 0;
-  }
-  if (x->sign == 1) {
-    s21_mpf_set_nan(res);
-    return 0;
-  }
-  if (x->kind == S21_MPF_INF) {
-    s21_mpf_set_inf(res, 0);
-    return 0;
-  }
+  if (x->kind == S21_MPF_NAN) { s21_mpf_set_nan(res); return 0; }
+  if (x->kind == S21_MPF_ZERO) { s21_mpf_set_zero(res, 0); return 0; }
+  if (x->sign == 1) { s21_mpf_set_nan(res); return 0; }
+  if (x->kind == S21_MPF_INF) { s21_mpf_set_inf(res, 0); return 0; }
 
   uint32_t work_prec = res->prec + 64;
 
@@ -920,48 +833,31 @@ int s21_mpf_sqrt(s21_mpf_t *res, const s21_mpf_t *x) {
   s21_mpf_init2(&x_next, work_prec);
   s21_mpf_init2(&tmp, work_prec);
 
-  /* a = x, приведённое к work_prec */
   s21_mpf_set(&a, x);
 
-  /* Начальное приближение: x0 ≈ 2^(exp_a / 2).
-     В нормализованном виде a = 2^(prec-1) * 2^(exp_a - prec) = 2^(exp_a - 1),
-     значит sqrt(a) ≈ 2^((exp_a-1)/2). Возьмём x_cur = 2^floor(exp_a/2). */
   int64_t half_exp = a.exp / 2;
-
-  /* Ставим мантиссу x_cur = 2^(work_prec - 1), exp = half_exp + 1.
-     Тогда x_cur = 2^(work_prec - 1) * 2^(half_exp + 1 - work_prec) = 2^half_exp. */
   s21_mpf_set_ui(&x_cur, 1);
   x_cur.exp = half_exp + 1;
   s21_mpf_normalize(&x_cur);
 
-  int max_iter = 200;
-  for (int i = 0; i < max_iter; i++) {
+  for (int i = 0; i < 200; i++) {
     if (s21_mpf_div(&tmp, &a, &x_cur) != 0) {
       s21_mpf_set_nan(res);
       goto cleanup;
     }
-
     if (s21_mpf_add(&x_next, &x_cur, &tmp) != 0) {
       s21_mpf_set_nan(res);
       goto cleanup;
     }
-
-    /* Деление на 2: сдвигаем exp вниз на 1 */
     x_next.exp -= 1;
     s21_mpf_normalize(&x_next);
 
-    if (s21_mpf_cmp(&x_next, &x_cur) == 0) {
-      break;
-    }
-
+    if (s21_mpf_cmp(&x_next, &x_cur) == 0) break;
     s21_mpf_set(&x_cur, &x_next);
   }
 
-  if (res->prec == work_prec) {
-    s21_mpf_set(res, &x_cur);
-  } else {
-    s21_mpf_round_to_prec(res, &x_cur, res->prec);
-  }
+  if (res->prec == work_prec) s21_mpf_set(res, &x_cur);
+  else s21_mpf_round_to_prec(res, &x_cur, res->prec);
 
 cleanup:
   s21_mpf_clear(&a);
@@ -972,21 +868,90 @@ cleanup:
 }
 
 /* ============================================================
+   Экспонента
+   ============================================================ */
+
+int s21_mpf_exp(s21_mpf_t *res, const s21_mpf_t *x) {
+  if (res == NULL || x == NULL) return -1;
+
+  if (x->kind == S21_MPF_NAN) { s21_mpf_set_nan(res); return 0; }
+  if (x->kind == S21_MPF_ZERO) { s21_mpf_set_ui(res, 1); return 0; }
+  if (x->kind == S21_MPF_INF) {
+    if (x->sign == 0) s21_mpf_set_inf(res, 0);
+    else s21_mpf_set_zero(res, 0);
+    return 0;
+  }
+
+  uint32_t work_prec = res->prec + 64;
+
+  s21_mpf_t a, y, sum, term;
+  s21_mpf_init2(&a, work_prec);
+  s21_mpf_init2(&y, work_prec);
+  s21_mpf_init2(&sum, work_prec);
+  s21_mpf_init2(&term, work_prec);
+
+  s21_mpf_set(&a, x);
+  s21_mpf_set(&y, &a);
+
+  /* Приводим |y| к < 0.5, считая число половин */
+  int s = 0;
+  while (y.exp > -1 && s < 128) {
+    y.exp -= 1;
+    s++;
+  }
+
+  /* Ряд Тейлора: exp(y) = sum y^n / n! */
+  s21_mpf_set_ui(&sum, 1);
+  s21_mpf_set_ui(&term, 1);
+
+  size_t count = s21_mpf_limbs_for_prec(work_prec);
+
+  for (int n = 1; n < 300; n++) {
+    /* term *= y */
+    s21_mpf_mul(&term, &term, &y);
+
+    /* term /= n (деление на маленькое целое) */
+    uint64_t rem = 0;
+    for (int i = (int)count - 1; i >= 0; i--) {
+      unsigned __int128 v = ((unsigned __int128)rem << 64) | term.limbs[i];
+      term.limbs[i] = (uint64_t)(v / (uint32_t)n);
+      rem = (uint64_t)(v % (uint32_t)n);
+    }
+    s21_mpf_normalize(&term);
+
+    /* sum += term */
+    s21_mpf_add(&sum, &sum, &term);
+
+    /* Сходимость: |term| < |sum| * 2^-work_prec */
+    if (term.kind == S21_MPF_ZERO) break;
+    if (term.exp < sum.exp - (int64_t)work_prec - 4) break;
+  }
+
+  /* exp(a) = exp(y)^(2^s) */
+  for (int i = 0; i < s; i++) {
+    s21_mpf_mul(&sum, &sum, &sum);
+  }
+
+  s21_mpf_set(res, &sum);
+
+  s21_mpf_clear(&a);
+  s21_mpf_clear(&y);
+  s21_mpf_clear(&sum);
+  s21_mpf_clear(&term);
+  return 0;
+}
+
+/* ============================================================
    Печать
    ============================================================ */
 
 void s21_mpf_print(const s21_mpf_t *x) {
-  if (x->kind == S21_MPF_NAN) {
-    printf("NaN\n");
-    return;
-  }
+  if (x->kind == S21_MPF_NAN) { printf("NaN\n"); return; }
   if (x->kind == S21_MPF_INF) {
-    printf("%sinf\n", x->sign ? "-" : "+");
-    return;
+    printf("%sinf\n", x->sign ? "-" : "+"); return;
   }
   if (x->kind == S21_MPF_ZERO) {
-    printf("%s0\n", x->sign ? "-" : "+");
-    return;
+    printf("%s0\n", x->sign ? "-" : "+"); return;
   }
   printf("%s0x", x->sign ? "-" : "+");
   size_t count = s21_mpf_limbs_for_prec(x->prec);
@@ -997,17 +962,12 @@ void s21_mpf_print(const s21_mpf_t *x) {
 }
 
 void s21_mpf_print_d(const s21_mpf_t *x) {
-  if (x->kind == S21_MPF_NAN) {
-    printf("nan\n");
-    return;
-  }
+  if (x->kind == S21_MPF_NAN) { printf("nan\n"); return; }
   if (x->kind == S21_MPF_INF) {
-    printf("%sinf\n", x->sign ? "-" : "+");
-    return;
+    printf("%sinf\n", x->sign ? "-" : "+"); return;
   }
   if (x->kind == S21_MPF_ZERO) {
-    printf("%s0\n", x->sign ? "-" : "+");
-    return;
+    printf("%s0\n", x->sign ? "-" : "+"); return;
   }
 
   size_t count = s21_mpf_limbs_for_prec(x->prec);
