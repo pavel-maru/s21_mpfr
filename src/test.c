@@ -27,11 +27,9 @@ static void test_set_ui(void) {
   s21_mpf_set_ui(&x, 42);
   ASSERT(x.kind == S21_MPF_NORMAL, "42 должен быть NORMAL");
   ASSERT(x.sign == 0, "42 положительный");
-  /* После нормализации старший бит на позиции prec-1 = 255 */
   int msb = s21_mpf_msb(&x);
   ASSERT(msb == 255, "42: старший бит должен быть на позиции 255");
-  /* Проверка значения через print_d */
-  s21_mpf_print_d(&x);  /* ожидаем 42 */
+  s21_mpf_print_d(&x);
 
   s21_mpf_set_ui(&x, 0);
   ASSERT(x.kind == S21_MPF_ZERO, "0 должен быть ZERO");
@@ -50,7 +48,7 @@ static void test_set_si(void) {
   s21_mpf_set_si(&x, -7);
   ASSERT(x.sign == 1, "-7 отрицательный");
   ASSERT(x.kind == S21_MPF_NORMAL, "-7 NORMAL");
-  s21_mpf_print_d(&x);  /* ожидаем -7 */
+  s21_mpf_print_d(&x);
 
   s21_mpf_set_si(&x, 0);
   ASSERT(x.kind == S21_MPF_ZERO, "0 (si) ZERO");
@@ -65,13 +63,13 @@ static void test_set_d(void) {
 
   s21_mpf_set_d(&x, 3.14);
   ASSERT(x.kind == S21_MPF_NORMAL, "3.14 NORMAL");
-  s21_mpf_print_d(&x);  /* ожидаем 3.14... */
+  s21_mpf_print_d(&x);
 
   s21_mpf_set_d(&x, -0.5);
-  s21_mpf_print_d(&x);  /* ожидаем -0.5 */
+  s21_mpf_print_d(&x);
 
   s21_mpf_set_d(&x, 1e10);
-  s21_mpf_print_d(&x);  /* ожидаем 1e+10 */
+  s21_mpf_print_d(&x);
 
   s21_mpf_clear(&x);
   printf("[ok] set_d\n");
@@ -109,6 +107,75 @@ static void test_precision(void) {
   printf("[ok] precisions 2..512\n");
 }
 
+static void test_cmp(void) {
+  s21_mpf_t a, b;
+  s21_mpf_init2(&a, 256);
+  s21_mpf_init2(&b, 256);
+
+  s21_mpf_set_ui(&a, 42);
+  s21_mpf_set_ui(&b, 42);
+  ASSERT(s21_mpf_cmp(&a, &b) == 0, "42 == 42");
+  ASSERT(s21_mpf_equal(&a, &b), "42 == 42 (equal)");
+
+  s21_mpf_set_ui(&a, 42);
+  s21_mpf_set_ui(&b, 43);
+  ASSERT(s21_mpf_cmp(&a, &b) == -1, "42 < 43");
+  ASSERT(s21_mpf_cmp(&b, &a) == 1, "43 > 42");
+
+  s21_mpf_set_si(&a, -5);
+  s21_mpf_set_ui(&b, 3);
+  ASSERT(s21_mpf_cmp(&a, &b) == -1, "-5 < 3");
+
+  s21_mpf_set_si(&a, -5);
+  s21_mpf_set_si(&b, -3);
+  ASSERT(s21_mpf_cmp(&a, &b) == -1, "-5 < -3");
+
+  s21_mpf_set_zero(&a, 0);
+  s21_mpf_set_ui(&b, 1);
+  ASSERT(s21_mpf_cmp(&a, &b) == -1, "0 < 1");
+
+  s21_mpf_set_ui(&a, 100);
+  s21_mpf_set_ui(&b, 99);
+  ASSERT(s21_mpf_cmp_abs(&a, &b) == 1, "|100| > |99|");
+
+  s21_mpf_set_si(&a, -100);
+  s21_mpf_set_ui(&b, 99);
+  ASSERT(s21_mpf_cmp_abs(&a, &b) == 1, "|-100| > |99|");
+
+  s21_mpf_set_inf(&a, 0);
+  s21_mpf_set_ui(&b, 999999);
+  ASSERT(s21_mpf_cmp(&a, &b) == 1, "+inf > 999999");
+
+  s21_mpf_set_inf(&a, 1);
+  ASSERT(s21_mpf_cmp(&a, &b) == -1, "-inf < 999999");
+
+  /* integer_p */
+  s21_mpf_set_ui(&a, 100);
+  ASSERT(s21_mpf_integer_p(&a), "100 — целое");
+
+  s21_mpf_set_ui(&a, 2);
+  ASSERT(s21_mpf_integer_p(&a), "2 — целое");
+
+  s21_mpf_set_d(&a, 0.5);
+  ASSERT(!s21_mpf_integer_p(&a), "0.5 — не целое");
+
+  s21_mpf_set_d(&a, 1.0);
+  ASSERT(s21_mpf_integer_p(&a), "1.0 — целое");
+
+  s21_mpf_set_d(&a, -3.0);
+  ASSERT(s21_mpf_integer_p(&a), "-3.0 — целое");
+
+  s21_mpf_set_d(&a, 1e10);
+  ASSERT(s21_mpf_integer_p(&a), "1e10 — целое");
+
+  s21_mpf_set_d(&a, 3.14);
+  ASSERT(!s21_mpf_integer_p(&a), "3.14 — не целое");
+
+  s21_mpf_clear(&a);
+  s21_mpf_clear(&b);
+  printf("[ok] cmp / cmp_abs / equal / integer_p\n");
+}
+
 int main(void) {
   printf("=== s21_mpf: базовые тесты ===\n");
   test_init_clear();
@@ -117,6 +184,7 @@ int main(void) {
   test_set_d();
   test_special();
   test_precision();
+  test_cmp();
   printf("=== Все тесты прошли ===\n");
   return 0;
 }

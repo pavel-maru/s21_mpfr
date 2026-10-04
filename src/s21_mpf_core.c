@@ -307,6 +307,136 @@ int s21_mpf_sign(const s21_mpf_t *x) {
 
 uint32_t s21_mpf_get_prec(const s21_mpf_t *x) { return x->prec; }
 
+/* ============================================================
+   Сравнение
+   ============================================================ */
+
+/* Сравнение мантисс побитово, начиная со старшего бита.
+   Предполагается, что x->prec == y->prec и обе мантиссы
+   нормализованы (старший значащий бит на позиции prec-1). */
+static int s21_mpf_cmp_mant(const s21_mpf_t *x, const s21_mpf_t *y) {
+  size_t count = s21_mpf_limbs_for_prec(x->prec);
+  for (int i = (int)count - 1; i >= 0; i--) {
+    if (x->limbs[i] < y->limbs[i]) return -1;
+    if (x->limbs[i] > y->limbs[i]) return 1;
+  }
+  return 0;
+}
+
+/* Сравнение по абсолютной величине. Требует, чтобы x и y имели
+   одинаковую точность. Для разных точностей — временно через double. */
+int s21_mpf_cmp_abs(const s21_mpf_t *x, const s21_mpf_t *y) {
+  /* NaN: возвращаем 0, как MPFR (неопределённый результат) */
+  if (x->kind == S21_MPF_NAN || y->kind == S21_MPF_NAN) return 0;
+
+  /* INF > всё, кроме INF */
+  int xinf = (x->kind == S21_MPF_INF);
+  int yinf = (y->kind == S21_MPF_INF);
+  if (xinf && yinf) return 0;
+  if (xinf) return 1;
+  if (yinf) return -1;
+
+  /* ZERO < NORMAL */
+  int xzero = (x->kind == S21_MPF_ZERO);
+  int yzero = (y->kind == S21_MPF_ZERO);
+  if (xzero && yzero) return 0;
+  if (xzero) return -1;
+  if (yzero) return 1;
+
+  /* Оба NORMAL: сравниваем экспоненты, потом мантиссы. */
+  if (x->exp < y->exp) return -1;
+  if (x->exp > y->exp) return 1;
+
+  if (x->prec == y->prec) {
+    return s21_mpf_cmp_mant(x, y);
+  }
+
+  /* Разные точности: временное решение через double. */
+  double xd = 0, yd = 0;
+  {
+    size_t xc = s21_mpf_limbs_for_prec(x->prec);
+    for (int i = (int)xc - 1; i >= 0; i--)
+      xd = xd * 18446744073709551616.0 + (double)x->limbs[i];
+    xd = ldexp(xd, (int)(x->exp - (int64_t)x->prec));
+
+    size_t yc = s21_mpf_limbs_for_prec(y->prec);
+    for (int i = (int)yc - 1; i >= 0; i--)
+      yd = yd * 18446744073709551616.0 + (double)y->limbs[i];
+    yd = ldexp(yd, (int)(y->exp - (int64_t)y->prec));
+  }
+  if (xd < yd) return -1;
+  if (xd > yd) return 1;
+  return 0;
+}
+
+int s21_mpf_cmp(const s21_mpf_t *x, const s21_mpf_t *y) {
+  if (x->kind == S21_MPF_NAN || y->kind == S21_MPF_NAN) return 0;
+
+  /* Знаки разные: отрицательное меньше */
+  int xs = x->kind == S21_MPF_ZERO ? 0 : (x->sign ? -1 : 1);
+  int ys = y->kind == S21_MPF_ZERO ? 0 : (y->sign ? -1 : 1);
+
+  if (x->kind != S21_MPF_ZERO && y->kind != S21_MPF_ZERO && xs != ys) {
+    return xs < ys ? -1 : 1;
+  }
+
+  /* Одинаковый знак: сравниваем по модулю, потом применяем знак */
+  int cmp_abs = s21_mpf_cmp_abs(x, y);
+  if (xs < 0) return -cmp_abs;
+  return cmp_abs;
+}
+
+int s21_mpf_equal(const s21_mpf_t *x, const s21_mpf_t *y) {
+  if (x->kind == S21_MPF_NAN || y->kind == S21_MPF_NAN) return 0;
+  if (x->kind != y->kind) return 0;
+  if (x->kind == S21_MPF_ZERO) return 1; /* ±0 == 0 */
+
+  if (x->kind == S21_MPF_INF) return x->sign == y->sign;
+  if (x->sign != y->sign) return 0;
+  if (x->prec != y->prec) return 0;
+  if (x->exp != y->exp) return 0;
+  return s21_mpf_cmp_mant(x, y) == 0;
+}
+
+int s21_mpf_zero_p(const s21_mpf_t *x) { return x->kind == S21_MPF_ZERO; }
+
+int s21_mpf_integer_p(const s21_mpf_t *x) {
+  if (x->kind == S21_MPF_ZERO) return 1;
+  if (x->kind != S21_MPF_NORMAL) return 0;
+
+  /* Если exp >= prec, все биты мантиссы лежат в целой части. */
+  if (x->exp >= (int64_t)x->prec) return 1;
+
+  /* Сколько младших бит мантиссы попадает в дробную часть:
+     x = mant * 2^(exp - prec) = mant / 2^(prec - exp).
+     Если prec - exp младших бит нулевые, число целое. */
+  int64_t fractional_bits = (int64_t)x->prec - x->exp;
+  if (fractional_bits <= 0) return 1;
+  if (fractional_bits >= (int64_t)x->prec) {
+    /* Все биты дробные — только ноль был бы целым, но это NORMAL. */
+    return 0;
+  }
+
+  uint32_t fb = (uint32_t)fractional_bits;
+  uint32_t full_words = fb / 64;
+  uint32_t rem_bits = fb % 64;
+
+  /* Проверяем полные 64-битные лимбы в дробной части */
+  for (uint32_t i = 0; i < full_words; i++) {
+    if (x->limbs[i] != 0) return 0;
+  }
+  /* Проверяем остаток в следующем лимбе */
+  if (rem_bits) {
+    uint64_t mask = (1ULL << rem_bits) - 1;
+    if ((x->limbs[full_words] & mask) != 0) return 0;
+  }
+  return 1;
+}
+
+/* ============================================================
+   Печать
+   ============================================================ */
+
 void s21_mpf_print(const s21_mpf_t *x) {
   if (x->kind == S21_MPF_NAN) {
     printf("NaN\n");
@@ -342,18 +472,13 @@ void s21_mpf_print_d(const s21_mpf_t *x) {
     return;
   }
 
-  /* Собираем значение через длинное деление:
-     mant = сумма limbs[i] * 2^(64*i). Мы знаем exp. Хотим
-     получить значение в double. mant может быть очень большим,
-     поэтому собираем пошагово с масштабированием. */
+  /* Собираем значение: mant в double, затем масштабируем. */
   size_t count = s21_mpf_limbs_for_prec(x->prec);
   double val = 0.0;
   for (int i = (int)count - 1; i >= 0; i--) {
     val = val * 18446744073709551616.0 + (double)x->limbs[i];
   }
-  /* Теперь val = mant (в double). Нужно умножить на 2^(exp - prec). */
   int64_t e = x->exp - (int64_t)x->prec;
-  /* Масштабируем через ldexp, который работает до 2^1023 */
   double result = ldexp(val, (int)e);
   printf("%s%.17g\n", x->sign ? "-" : "+", result);
 }
