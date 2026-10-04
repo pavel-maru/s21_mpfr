@@ -909,32 +909,24 @@ int s21_mpf_exp(s21_mpf_t *res, const s21_mpf_t *x) {
   s21_mpf_set(&a, x);
   s21_mpf_set(&y, &a);
 
-  /* Приводим |y| к < 0.5, считая число половин */
   int s = 0;
   while (y.exp > -1 && s < 128) {
     y.exp -= 1;
     s++;
   }
 
-  /* Ряд Тейлора: exp(y) = sum y^n / n! */
   s21_mpf_set_ui(&sum, 1);
   s21_mpf_set_ui(&term, 1);
 
   for (int n = 1; n < 300; n++) {
-    /* term *= y */
     s21_mpf_mul(&term, &term, &y);
-
-    /* term /= n */
     s21_mpf_div_small(&term, (uint32_t)n);
-
-    /* sum += term */
     s21_mpf_add(&sum, &sum, &term);
 
     if (term.kind == S21_MPF_ZERO) break;
     if (term.exp < sum.exp - (int64_t)work_prec - 4) break;
   }
 
-  /* exp(a) = exp(y)^(2^s) */
   for (int i = 0; i < s; i++) {
     s21_mpf_mul(&sum, &sum, &sum);
   }
@@ -950,7 +942,6 @@ int s21_mpf_exp(s21_mpf_t *res, const s21_mpf_t *x) {
 
 /* ============================================================
    Ряд atanh(z) = z + z^3/3 + z^5/5 + ...
-   Сходится быстро при |z| <= 1/3.
    ============================================================ */
 
 static void s21_mpf_atanh_series(s21_mpf_t *out, const s21_mpf_t *z,
@@ -1013,25 +1004,20 @@ int s21_mpf_log(s21_mpf_t *res, const s21_mpf_t *x) {
   s21_mpf_set(&a, x);
   s21_mpf_set_ui(&one, 1);
 
-  /* log(1) = 0 */
   if (s21_mpf_cmp(&a, &one) == 0) {
     s21_mpf_set_zero(res, 0);
     goto cleanup;
   }
 
-  /* Приведение: y = a / 2^k, y ∈ [1, 2), k = exp_a - 1.
-     В формате mpf y ∈ [2^(exp-1), 2^exp). Хотим y ∈ [1, 2) → exp = 1. */
   int64_t k = a.exp - 1;
   s21_mpf_set(&y, &a);
   y.exp = 1;
   s21_mpf_normalize(&y);
 
-  /* z = (y - 1) / (y + 1) */
   s21_mpf_sub(&num, &y, &one);
   s21_mpf_add(&den, &y, &one);
   s21_mpf_div(&z, &num, &den);
 
-  /* log(y) = 2 * atanh(z) */
   s21_mpf_atanh_series(&log_y, &z, work_prec);
   log_y.exp += 1;
   s21_mpf_normalize(&log_y);
@@ -1041,18 +1027,15 @@ int s21_mpf_log(s21_mpf_t *res, const s21_mpf_t *x) {
     goto cleanup;
   }
 
-  /* ln2 = 2 * atanh(1/3) */
   s21_mpf_set_ui(&three, 3);
   s21_mpf_div(&z, &one, &three);
   s21_mpf_atanh_series(&ln2, &z, work_prec);
   ln2.exp += 1;
   s21_mpf_normalize(&ln2);
 
-  /* k_ln2 = k * ln2 */
   s21_mpf_set_si(&kk, (long)k);
   s21_mpf_mul(&k_ln2, &kk, &ln2);
 
-  /* result = log_y + k_ln2 */
   s21_mpf_add(&result, &log_y, &k_ln2);
   s21_mpf_set(res, &result);
 
@@ -1069,6 +1052,334 @@ cleanup:
   s21_mpf_clear(&one);
   s21_mpf_clear(&three);
   s21_mpf_clear(&kk);
+  return 0;
+}
+
+/* ============================================================
+   Утилиты для тригонометрии
+   ============================================================ */
+
+static void s21_mpf_trunc(s21_mpf_t *res, const s21_mpf_t *x) {
+  if (x->kind != S21_MPF_NORMAL) { s21_mpf_set(res, x); return; }
+  if (x->exp <= 0) { s21_mpf_set_zero(res, x->sign); return; }
+
+  s21_mpf_set(res, x);
+  if (res->exp >= (int64_t)res->prec) return;
+
+  uint32_t keep = (uint32_t)res->exp;
+  for (uint32_t i = 0; i < res->prec - keep; i++) {
+    s21_mpf_set_bit(res, i, 0);
+  }
+  s21_mpf_normalize(res);
+}
+
+static void s21_mpf_round_nearest(s21_mpf_t *res, const s21_mpf_t *x) {
+  if (x->kind == S21_MPF_ZERO) { s21_mpf_set_zero(res, x->sign); return; }
+
+  s21_mpf_t half, shifted;
+  s21_mpf_init2(&half, x->prec);
+  s21_mpf_init2(&shifted, x->prec);
+
+  s21_mpf_set_d(&half, 0.5);
+  if (x->sign) s21_mpf_neg(&half, &half);
+
+  s21_mpf_add(&shifted, x, &half);
+  s21_mpf_trunc(res, &shifted);
+
+  s21_mpf_clear(&half);
+  s21_mpf_clear(&shifted);
+}
+
+static void s21_mpf_atan_small_series(s21_mpf_t *out, const s21_mpf_t *z,
+                                       uint32_t work_prec) {
+  s21_mpf_t z2, term, sum, tmp;
+  s21_mpf_init2(&z2, work_prec);
+  s21_mpf_init2(&term, work_prec);
+  s21_mpf_init2(&sum, work_prec);
+  s21_mpf_init2(&tmp, work_prec);
+
+  s21_mpf_mul(&z2, z, z);
+  s21_mpf_set(&term, z);
+  s21_mpf_set(&sum, z);
+
+  for (int n = 3; n < 4000; n += 2) {
+    s21_mpf_mul(&term, &term, &z2);
+    s21_mpf_neg(&term, &term);
+
+    s21_mpf_set(&tmp, &term);
+    s21_mpf_div_small(&tmp, (uint32_t)n);
+    s21_mpf_add(&sum, &sum, &tmp);
+
+    if (term.kind == S21_MPF_ZERO) break;
+    if (term.exp < sum.exp - (int64_t)work_prec - 4) break;
+  }
+
+  s21_mpf_set(out, &sum);
+  s21_mpf_clear(&z2);
+  s21_mpf_clear(&term);
+  s21_mpf_clear(&sum);
+  s21_mpf_clear(&tmp);
+}
+
+static void s21_mpf_compute_pi(s21_mpf_t *pi, uint32_t work_prec) {
+  s21_mpf_t one, five, k239, z, a, b, tmp;
+  s21_mpf_init2(&one, work_prec);
+  s21_mpf_init2(&five, work_prec);
+  s21_mpf_init2(&k239, work_prec);
+  s21_mpf_init2(&z, work_prec);
+  s21_mpf_init2(&a, work_prec);
+  s21_mpf_init2(&b, work_prec);
+  s21_mpf_init2(&tmp, work_prec);
+
+  s21_mpf_set_ui(&one, 1);
+  s21_mpf_set_ui(&five, 5);
+  s21_mpf_set_ui(&k239, 239);
+
+  s21_mpf_div(&z, &one, &five);
+  s21_mpf_atan_small_series(&a, &z, work_prec);
+  s21_mpf_set_ui(&tmp, 16);
+  s21_mpf_mul(&a, &a, &tmp);
+
+  s21_mpf_div(&z, &one, &k239);
+  s21_mpf_atan_small_series(&b, &z, work_prec);
+  s21_mpf_set_ui(&tmp, 4);
+  s21_mpf_mul(&b, &b, &tmp);
+
+  s21_mpf_sub(pi, &a, &b);
+
+  s21_mpf_clear(&one);
+  s21_mpf_clear(&five);
+  s21_mpf_clear(&k239);
+  s21_mpf_clear(&z);
+  s21_mpf_clear(&a);
+  s21_mpf_clear(&b);
+  s21_mpf_clear(&tmp);
+}
+
+int s21_mpf_pi(s21_mpf_t *res) {
+  if (res == NULL) return -1;
+  uint32_t work_prec = res->prec + 64;
+  s21_mpf_t pi_w;
+  s21_mpf_init2(&pi_w, work_prec);
+  s21_mpf_compute_pi(&pi_w, work_prec);
+  s21_mpf_set(res, &pi_w);
+  s21_mpf_clear(&pi_w);
+  return 0;
+}
+
+/* ============================================================
+   Синус и косинус
+   ============================================================ */
+
+int s21_mpf_sin(s21_mpf_t *res, const s21_mpf_t *x) {
+  if (res == NULL || x == NULL) return -1;
+  if (x->kind == S21_MPF_NAN || x->kind == S21_MPF_INF) {
+    s21_mpf_set_nan(res);
+    return 0;
+  }
+  if (x->kind == S21_MPF_ZERO) {
+    s21_mpf_set_zero(res, x->sign);
+    return 0;
+  }
+
+  uint32_t work_prec = res->prec + 64;
+
+  s21_mpf_t a, pi, two_pi, q, q_r, r, term, sum, x2, tmp;
+  s21_mpf_init2(&a, work_prec);
+  s21_mpf_init2(&pi, work_prec);
+  s21_mpf_init2(&two_pi, work_prec);
+  s21_mpf_init2(&q, work_prec);
+  s21_mpf_init2(&q_r, work_prec);
+  s21_mpf_init2(&r, work_prec);
+  s21_mpf_init2(&term, work_prec);
+  s21_mpf_init2(&sum, work_prec);
+  s21_mpf_init2(&x2, work_prec);
+  s21_mpf_init2(&tmp, work_prec);
+
+  s21_mpf_set(&a, x);
+
+  s21_mpf_compute_pi(&pi, work_prec);
+  s21_mpf_set(&two_pi, &pi);
+  two_pi.exp += 1;
+  s21_mpf_normalize(&two_pi);
+
+  s21_mpf_div(&q, &a, &two_pi);
+  s21_mpf_round_nearest(&q_r, &q);
+  s21_mpf_mul(&tmp, &q_r, &two_pi);
+  s21_mpf_sub(&r, &a, &tmp);
+
+  s21_mpf_set(&term, &r);
+  s21_mpf_set(&sum, &r);
+  s21_mpf_mul(&x2, &r, &r);
+
+  for (int n = 1; n < 400; n++) {
+    s21_mpf_mul(&term, &term, &x2);
+    s21_mpf_neg(&term, &term);
+    s21_mpf_div_small(&term, (uint32_t)(2 * n));
+    s21_mpf_div_small(&term, (uint32_t)(2 * n + 1));
+    s21_mpf_add(&sum, &sum, &term);
+
+    if (term.kind == S21_MPF_ZERO) break;
+    if (term.exp < sum.exp - (int64_t)work_prec - 4) break;
+  }
+
+  s21_mpf_set(res, &sum);
+
+  s21_mpf_clear(&a);
+  s21_mpf_clear(&pi);
+  s21_mpf_clear(&two_pi);
+  s21_mpf_clear(&q);
+  s21_mpf_clear(&q_r);
+  s21_mpf_clear(&r);
+  s21_mpf_clear(&term);
+  s21_mpf_clear(&sum);
+  s21_mpf_clear(&x2);
+  s21_mpf_clear(&tmp);
+  return 0;
+}
+
+int s21_mpf_cos(s21_mpf_t *res, const s21_mpf_t *x) {
+  if (res == NULL || x == NULL) return -1;
+  if (x->kind == S21_MPF_NAN || x->kind == S21_MPF_INF) {
+    s21_mpf_set_nan(res);
+    return 0;
+  }
+  if (x->kind == S21_MPF_ZERO) {
+    s21_mpf_set_ui(res, 1);
+    return 0;
+  }
+
+  uint32_t work_prec = res->prec + 64;
+
+  s21_mpf_t a, pi, two_pi, q, q_r, r, term, sum, x2, tmp, one;
+  s21_mpf_init2(&a, work_prec);
+  s21_mpf_init2(&pi, work_prec);
+  s21_mpf_init2(&two_pi, work_prec);
+  s21_mpf_init2(&q, work_prec);
+  s21_mpf_init2(&q_r, work_prec);
+  s21_mpf_init2(&r, work_prec);
+  s21_mpf_init2(&term, work_prec);
+  s21_mpf_init2(&sum, work_prec);
+  s21_mpf_init2(&x2, work_prec);
+  s21_mpf_init2(&tmp, work_prec);
+  s21_mpf_init2(&one, work_prec);
+
+  s21_mpf_set(&a, x);
+
+  s21_mpf_compute_pi(&pi, work_prec);
+  s21_mpf_set(&two_pi, &pi);
+  two_pi.exp += 1;
+  s21_mpf_normalize(&two_pi);
+
+  s21_mpf_div(&q, &a, &two_pi);
+  s21_mpf_round_nearest(&q_r, &q);
+  s21_mpf_mul(&tmp, &q_r, &two_pi);
+  s21_mpf_sub(&r, &a, &tmp);
+
+  s21_mpf_set_ui(&one, 1);
+  s21_mpf_set(&term, &one);
+  s21_mpf_set(&sum, &one);
+  s21_mpf_mul(&x2, &r, &r);
+
+  for (int n = 1; n < 400; n++) {
+    s21_mpf_mul(&term, &term, &x2);
+    s21_mpf_neg(&term, &term);
+    s21_mpf_div_small(&term, (uint32_t)(2 * n - 1));
+    s21_mpf_div_small(&term, (uint32_t)(2 * n));
+    s21_mpf_add(&sum, &sum, &term);
+
+    if (term.kind == S21_MPF_ZERO) break;
+    if (term.exp < sum.exp - (int64_t)work_prec - 4) break;
+  }
+
+  s21_mpf_set(res, &sum);
+
+  s21_mpf_clear(&a);
+  s21_mpf_clear(&pi);
+  s21_mpf_clear(&two_pi);
+  s21_mpf_clear(&q);
+  s21_mpf_clear(&q_r);
+  s21_mpf_clear(&r);
+  s21_mpf_clear(&term);
+  s21_mpf_clear(&sum);
+  s21_mpf_clear(&x2);
+  s21_mpf_clear(&tmp);
+  s21_mpf_clear(&one);
+  return 0;
+}
+
+/* ============================================================
+   Арктангенс
+   ============================================================ */
+
+int s21_mpf_atan(s21_mpf_t *res, const s21_mpf_t *x) {
+  if (res == NULL || x == NULL) return -1;
+  if (x->kind == S21_MPF_NAN) { s21_mpf_set_nan(res); return 0; }
+  if (x->kind == S21_MPF_ZERO) { s21_mpf_set_zero(res, x->sign); return 0; }
+
+  uint32_t work_prec = res->prec + 64;
+
+  s21_mpf_t one, pi, pi_2, a, tmp, sq;
+  s21_mpf_init2(&one, work_prec);
+  s21_mpf_init2(&pi, work_prec);
+  s21_mpf_init2(&pi_2, work_prec);
+  s21_mpf_init2(&a, work_prec);
+  s21_mpf_init2(&tmp, work_prec);
+  s21_mpf_init2(&sq, work_prec);
+
+  s21_mpf_set_ui(&one, 1);
+  s21_mpf_compute_pi(&pi, work_prec);
+
+  if (x->kind == S21_MPF_INF) {
+    s21_mpf_set(&pi_2, &pi);
+    pi_2.exp -= 1;
+    s21_mpf_normalize(&pi_2);
+    pi_2.sign = x->sign;
+    s21_mpf_set(res, &pi_2);
+    goto cleanup;
+  }
+
+  int sign = x->sign;
+  s21_mpf_abs(&a, x);
+
+  int invert = 0;
+  if (s21_mpf_cmp(&a, &one) > 0) {
+    s21_mpf_div(&a, &one, &a);
+    invert = 1;
+  }
+
+  int reductions = 0;
+  while (a.exp > -2 && reductions < 16) {
+    s21_mpf_mul(&sq, &a, &a);
+    s21_mpf_add(&sq, &sq, &one);
+    s21_mpf_sqrt(&sq, &sq);
+    s21_mpf_add(&sq, &sq, &one);
+    s21_mpf_div(&a, &a, &sq);
+    reductions++;
+  }
+
+  s21_mpf_atan_small_series(&a, &a, work_prec);
+
+  a.exp += reductions;
+  s21_mpf_normalize(&a);
+
+  if (invert) {
+    s21_mpf_set(&pi_2, &pi);
+    pi_2.exp -= 1;
+    s21_mpf_normalize(&pi_2);
+    s21_mpf_sub(&a, &pi_2, &a);
+  }
+
+  if (sign) a.sign = 1;
+  s21_mpf_set(res, &a);
+
+cleanup:
+  s21_mpf_clear(&one);
+  s21_mpf_clear(&pi);
+  s21_mpf_clear(&pi_2);
+  s21_mpf_clear(&a);
+  s21_mpf_clear(&tmp);
+  s21_mpf_clear(&sq);
   return 0;
 }
 
