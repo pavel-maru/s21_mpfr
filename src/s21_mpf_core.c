@@ -287,16 +287,66 @@ void s21_mpf_set_d(s21_mpf_t *x, double v) {
   s21_mpf_normalize(x);
 }
 
+/* Универсальное присваивание с приведением точности.
+   Инвариант: x = mant * 2^(exp - prec). При смене prec мантисса
+   сдвигается так, чтобы старший бит остался на позиции (prec-1),
+   а exp НЕ меняется. */
 void s21_mpf_set(s21_mpf_t *dst, const s21_mpf_t *src) {
   if (dst == src) return;
+
   size_t dst_count = s21_mpf_limbs_for_prec(dst->prec);
-  size_t src_count = s21_mpf_limbs_for_prec(src->prec);
   memset(dst->limbs, 0, dst_count * sizeof(uint64_t));
-  size_t n = dst_count < src_count ? dst_count : src_count;
-  memcpy(dst->limbs, src->limbs, n * sizeof(uint64_t));
-  dst->exp = src->exp;
+
+  /* Особые случаи и совпадающие точности — простое копирование */
+  if (src->kind != S21_MPF_NORMAL || dst->prec == src->prec) {
+    size_t src_count = s21_mpf_limbs_for_prec(src->prec);
+    size_t n = dst_count < src_count ? dst_count : src_count;
+    memcpy(dst->limbs, src->limbs, n * sizeof(uint64_t));
+    dst->exp = src->exp;
+    dst->sign = src->sign;
+    dst->kind = src->kind;
+    return;
+  }
+
+  size_t src_count = s21_mpf_limbs_for_prec(src->prec);
+
+  if (dst->prec > src->prec) {
+    /* Сдвиг влево: старший бит src на позиции (src->prec - 1),
+       после сдвига на (dst->prec - src->prec) окажется на (dst->prec - 1).
+       exp при этом не меняется. */
+    int shift = (int)(dst->prec - src->prec);
+    s21_mpf_shift_left_into(dst->limbs, src->limbs, dst_count, shift);
+    dst->exp = src->exp;
+  } else {
+    /* Сдвиг вправо (RNDZ): теряем младшие биты, exp не меняется */
+    int shift = (int)(src->prec - dst->prec);
+    int word_shift = shift / 64;
+    int bit_shift = shift % 64;
+    for (size_t i = 0; i < dst_count; i++) {
+      int src_idx = (int)i + word_shift;
+      if (src_idx >= (int)src_count) {
+        dst->limbs[i] = 0;
+      } else {
+        uint64_t v = src->limbs[src_idx];
+        if (bit_shift && src_idx + 1 < (int)src_count) {
+          v = (v >> bit_shift) | (src->limbs[src_idx + 1] << (64 - bit_shift));
+        } else if (bit_shift) {
+          v >>= bit_shift;
+        }
+        dst->limbs[i] = v;
+      }
+    }
+    dst->exp = src->exp;
+  }
+
+  /* Отрезаем лишние биты выше dst->prec */
+  uint32_t mask_bits = dst->prec % 64;
+  if (mask_bits != 0 && dst_count > 0) {
+    dst->limbs[dst_count - 1] &= (1ULL << mask_bits) - 1;
+  }
+
   dst->sign = src->sign;
-  dst->kind = src->kind;
+  dst->kind = S21_MPF_NORMAL;
 }
 
 /* ============================================================
@@ -820,6 +870,104 @@ int s21_mpf_div(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
   res->kind = S21_MPF_NORMAL;
   s21_mpf_normalize(res);
 
+  return 0;
+}
+
+/* ============================================================
+   Квадратный корень
+   ============================================================ */
+
+/* Округление src (prec = src->prec) до target_prec = res->prec.
+   Режим RNDZ (truncation). Использует s21_mpf_set, который
+   корректно обрабатывает разные точности. */
+static int s21_mpf_round_to_prec(s21_mpf_t *res, const s21_mpf_t *src,
+                                 uint32_t target_prec) {
+  if (res->prec != target_prec) return -1;
+  if (src->prec == target_prec) {
+    s21_mpf_set(res, src);
+    return 0;
+  }
+  if (src->prec < target_prec) return -1;
+  s21_mpf_set(res, src);
+  return 0;
+}
+
+int s21_mpf_sqrt(s21_mpf_t *res, const s21_mpf_t *x) {
+  if (res == NULL || x == NULL) return -1;
+
+  if (x->kind == S21_MPF_NAN) {
+    s21_mpf_set_nan(res);
+    return 0;
+  }
+  if (x->kind == S21_MPF_ZERO) {
+    s21_mpf_set_zero(res, 0);
+    return 0;
+  }
+  if (x->sign == 1) {
+    s21_mpf_set_nan(res);
+    return 0;
+  }
+  if (x->kind == S21_MPF_INF) {
+    s21_mpf_set_inf(res, 0);
+    return 0;
+  }
+
+  uint32_t work_prec = res->prec + 64;
+
+  s21_mpf_t a, x_cur, x_next, tmp;
+  s21_mpf_init2(&a, work_prec);
+  s21_mpf_init2(&x_cur, work_prec);
+  s21_mpf_init2(&x_next, work_prec);
+  s21_mpf_init2(&tmp, work_prec);
+
+  /* a = x, приведённое к work_prec */
+  s21_mpf_set(&a, x);
+
+  /* Начальное приближение: x0 ≈ 2^(exp_a / 2).
+     В нормализованном виде a = 2^(prec-1) * 2^(exp_a - prec) = 2^(exp_a - 1),
+     значит sqrt(a) ≈ 2^((exp_a-1)/2). Возьмём x_cur = 2^floor(exp_a/2). */
+  int64_t half_exp = a.exp / 2;
+
+  /* Ставим мантиссу x_cur = 2^(work_prec - 1), exp = half_exp + 1.
+     Тогда x_cur = 2^(work_prec - 1) * 2^(half_exp + 1 - work_prec) = 2^half_exp. */
+  s21_mpf_set_ui(&x_cur, 1);
+  x_cur.exp = half_exp + 1;
+  s21_mpf_normalize(&x_cur);
+
+  int max_iter = 200;
+  for (int i = 0; i < max_iter; i++) {
+    if (s21_mpf_div(&tmp, &a, &x_cur) != 0) {
+      s21_mpf_set_nan(res);
+      goto cleanup;
+    }
+
+    if (s21_mpf_add(&x_next, &x_cur, &tmp) != 0) {
+      s21_mpf_set_nan(res);
+      goto cleanup;
+    }
+
+    /* Деление на 2: сдвигаем exp вниз на 1 */
+    x_next.exp -= 1;
+    s21_mpf_normalize(&x_next);
+
+    if (s21_mpf_cmp(&x_next, &x_cur) == 0) {
+      break;
+    }
+
+    s21_mpf_set(&x_cur, &x_next);
+  }
+
+  if (res->prec == work_prec) {
+    s21_mpf_set(res, &x_cur);
+  } else {
+    s21_mpf_round_to_prec(res, &x_cur, res->prec);
+  }
+
+cleanup:
+  s21_mpf_clear(&a);
+  s21_mpf_clear(&x_cur);
+  s21_mpf_clear(&x_next);
+  s21_mpf_clear(&tmp);
   return 0;
 }
 
