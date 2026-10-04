@@ -2,7 +2,12 @@ CC = gcc
 CFLAGS = -Wall -Wextra -Werror -std=c11 -O2
 LDFLAGS = -lm
 
-SRC = src/s21_mpf_core.c
+SRC = src/s21_mpf_core.c \
+      src/s21_mpf_bits.c \
+      src/s21_mpf_cmp.c \
+      src/s21_mpf_arith.c \
+      src/s21_mpf_func.c \
+      src/s21_mpf_print.c
 OBJ = $(SRC:.c=.o)
 LIB = libs21_mpf.a
 
@@ -14,7 +19,7 @@ all: $(LIB)
 $(LIB): $(OBJ)
 	ar rcs $@ $^
 
-%.o: %.c src/s21_mpf.h
+%.o: %.c src/s21_mpf.h src/s21_mpf_internal.h
 	$(CC) $(CFLAGS) -Isrc -c $< -o $@
 
 test: $(LIB)
