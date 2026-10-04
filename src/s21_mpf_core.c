@@ -670,6 +670,132 @@ int s21_mpf_mul(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
 }
 
 /* ============================================================
+   Деление
+   ============================================================ */
+
+int s21_mpf_div(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
+  if (res->prec != x->prec || x->prec != y->prec) return -1;
+
+  /* Особые случаи */
+  if (x->kind == S21_MPF_NAN || y->kind == S21_MPF_NAN) {
+    s21_mpf_set_nan(res);
+    return 0;
+  }
+  if (x->kind == S21_MPF_INF && y->kind == S21_MPF_INF) {
+    s21_mpf_set_nan(res); /* inf / inf = NaN */
+    return 0;
+  }
+  if (x->kind == S21_MPF_INF) {
+    s21_mpf_set_inf(res, x->sign ^ y->sign);
+    return 0;
+  }
+  if (y->kind == S21_MPF_INF) {
+    s21_mpf_set_zero(res, x->sign ^ y->sign);
+    return 0;
+  }
+  if (y->kind == S21_MPF_ZERO) {
+    if (x->kind == S21_MPF_ZERO) {
+      s21_mpf_set_nan(res); /* 0/0 = NaN */
+    } else {
+      s21_mpf_set_inf(res, x->sign ^ y->sign);
+    }
+    return 0;
+  }
+  if (x->kind == S21_MPF_ZERO) {
+    s21_mpf_set_zero(res, x->sign ^ y->sign);
+    return 0;
+  }
+
+  /* Оба NORMAL. q = floor(mant_x * 2^prec / mant_y), до prec+1 бит. */
+  uint32_t prec = res->prec;
+  size_t count = s21_mpf_limbs_for_prec(prec);
+
+  uint64_t *rem = calloc(count + 1, sizeof(uint64_t));
+  uint64_t *q = calloc(count + 1, sizeof(uint64_t));
+
+  /* Бинарное длинное деление: обрабатываем 2*prec бит N = mant_x * 2^prec
+     от старшего к младшему. */
+  for (int i = 2 * (int)prec - 1; i >= 0; i--) {
+    /* rem <<= 1 */
+    uint64_t carry = 0;
+    for (size_t w = 0; w < count + 1; w++) {
+      uint64_t nc = rem[w] >> 63;
+      rem[w] = (rem[w] << 1) | carry;
+      carry = nc;
+    }
+    /* Добавляем бит i числа N: если i >= prec, это бит (i - prec) из mant_x,
+       иначе 0 (нижние prec бит N — нули) */
+    if (i >= (int)prec) {
+      int src = i - (int)prec;
+      uint64_t b = (x->limbs[src / 64] >> (src % 64)) & 1ULL;
+      rem[0] |= b;
+    }
+
+    /* Если rem >= mant_y — вычитаем и ставим бит q */
+    int geq = (rem[count] != 0);
+    if (!geq) {
+      geq = 1;
+      for (int w = (int)count - 1; w >= 0; w--) {
+        if (rem[w] < y->limbs[w]) {
+          geq = 0;
+          break;
+        }
+        if (rem[w] > y->limbs[w]) {
+          geq = 1;
+          break;
+        }
+      }
+    }
+
+    if (geq) {
+      uint64_t borrow = 0;
+      for (size_t w = 0; w < count; w++) {
+        uint64_t diff;
+        uint64_t b1 = __builtin_sub_overflow(rem[w], y->limbs[w], &diff);
+        uint64_t b2 = __builtin_sub_overflow(diff, borrow, &diff);
+        rem[w] = diff;
+        borrow = b1 | b2;
+      }
+      rem[count] -= borrow;
+      q[i / 64] |= (1ULL << (i % 64));
+    }
+  }
+  free(rem);
+
+  /* q может иметь prec+1 бит (если mant_x >= mant_y). Проверяем бит prec. */
+  uint32_t pw = prec / 64;
+  uint32_t pb = prec % 64;
+  int overflow = 0;
+  if (pw < count + 1) {
+    if ((q[pw] >> pb) & 1ULL) overflow = 1;
+  }
+
+  if (overflow) {
+    /* Сдвигаем q вправо на 1 бит (RNDZ), exp_r увеличиваем на 1 */
+    for (size_t w = 0; w < count + 1; w++) {
+      uint64_t high_bit = (w + 1 < count + 1) ? (q[w + 1] << 63) : 0;
+      q[w] = (q[w] >> 1) | high_bit;
+    }
+  }
+
+  memcpy(res->limbs, q, count * sizeof(uint64_t));
+  free(q);
+
+  /* Отрезаем биты выше prec */
+  uint32_t mask_bits = prec % 64;
+  if (mask_bits != 0) {
+    res->limbs[count - 1] &= (1ULL << mask_bits) - 1;
+  }
+
+  res->exp = x->exp - y->exp + (overflow ? 1 : 0);
+  res->sign = x->sign ^ y->sign;
+  res->kind = S21_MPF_NORMAL;
+  s21_mpf_normalize(res);
+
+  return 0;
+}
+
+/* ============================================================
    Печать
    ============================================================ */
 

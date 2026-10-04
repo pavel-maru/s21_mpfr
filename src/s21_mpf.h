@@ -98,6 +98,9 @@ int s21_mpf_sub(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y);
 /* res = x * y. */
 int s21_mpf_mul(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y);
 
+/* res = x / y. */
+int s21_mpf_div(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y);
+
 /* res = -x */
 void s21_mpf_neg(s21_mpf_t *res, const s21_mpf_t *x);
 

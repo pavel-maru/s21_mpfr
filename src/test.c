@@ -326,6 +326,115 @@ static void test_mul(void) {
   printf("[ok] mul\n");
 }
 
+static void test_div(void) {
+  s21_mpf_t a, b, c, expected;
+  s21_mpf_init2(&a, 256);
+  s21_mpf_init2(&b, 256);
+  s21_mpf_init2(&c, 256);
+  s21_mpf_init2(&expected, 256);
+
+  /* Точные деления */
+  s21_mpf_set_ui(&a, 6);
+  s21_mpf_set_ui(&b, 3);
+  s21_mpf_div(&c, &a, &b);
+  s21_mpf_set_ui(&expected, 2);
+  ASSERT(s21_mpf_cmp(&c, &expected) == 0, "6 / 3 = 2");
+
+  s21_mpf_set_ui(&a, 100);
+  s21_mpf_set_ui(&b, 25);
+  s21_mpf_div(&c, &a, &b);
+  s21_mpf_set_ui(&expected, 4);
+  ASSERT(s21_mpf_cmp(&c, &expected) == 0, "100 / 25 = 4");
+
+  s21_mpf_set_ui(&a, 1000000000);
+  s21_mpf_set_ui(&b, 1000);
+  s21_mpf_div(&c, &a, &b);
+  s21_mpf_set_ui(&expected, 1000000);
+  ASSERT(s21_mpf_cmp(&c, &expected) == 0, "1e9 / 1e3 = 1e6");
+
+  s21_mpf_set_si(&a, -12);
+  s21_mpf_set_ui(&b, 4);
+  s21_mpf_div(&c, &a, &b);
+  s21_mpf_set_si(&expected, -3);
+  ASSERT(s21_mpf_cmp(&c, &expected) == 0, "-12 / 4 = -3");
+
+  s21_mpf_set_si(&a, -12);
+  s21_mpf_set_si(&b, -4);
+  s21_mpf_div(&c, &a, &b);
+  s21_mpf_set_ui(&expected, 3);
+  ASSERT(s21_mpf_cmp(&c, &expected) == 0, "-12 / -4 = 3");
+
+  s21_mpf_set_ui(&a, 1);
+  s21_mpf_set_ui(&b, 1);
+  s21_mpf_div(&c, &a, &b);
+  s21_mpf_set_ui(&expected, 1);
+  ASSERT(s21_mpf_cmp(&c, &expected) == 0, "1 / 1 = 1");
+
+  /* 0 / 5 = 0 */
+  s21_mpf_set_ui(&a, 0);
+  s21_mpf_set_ui(&b, 5);
+  s21_mpf_div(&c, &a, &b);
+  ASSERT(s21_mpf_is_zero(&c), "0 / 5 = 0");
+
+  /* 5 / inf = 0 */
+  s21_mpf_set_ui(&a, 5);
+  s21_mpf_set_inf(&b, 0);
+  s21_mpf_div(&c, &a, &b);
+  ASSERT(s21_mpf_is_zero(&c), "5 / inf = 0");
+
+  /* inf / 5 = inf */
+  s21_mpf_set_inf(&a, 0);
+  s21_mpf_set_ui(&b, 5);
+  s21_mpf_div(&c, &a, &b);
+  ASSERT(s21_mpf_is_inf(&c) && c.sign == 0, "inf / 5 = inf");
+
+  /* inf / inf = NaN */
+  s21_mpf_set_inf(&a, 0);
+  s21_mpf_set_inf(&b, 0);
+  s21_mpf_div(&c, &a, &b);
+  ASSERT(s21_mpf_is_nan(&c), "inf / inf = NaN");
+
+  /* 5 / 0 = inf */
+  s21_mpf_set_ui(&a, 5);
+  s21_mpf_set_ui(&b, 0);
+  s21_mpf_div(&c, &a, &b);
+  ASSERT(s21_mpf_is_inf(&c) && c.sign == 0, "5 / 0 = inf");
+
+  /* 0 / 0 = NaN */
+  s21_mpf_set_ui(&a, 0);
+  s21_mpf_set_ui(&b, 0);
+  s21_mpf_div(&c, &a, &b);
+  ASSERT(s21_mpf_is_nan(&c), "0 / 0 = NaN");
+
+  /* Круговой тест: (a / b) * b ≈ a */
+  s21_mpf_set_ui(&a, 1);
+  s21_mpf_set_ui(&b, 3);
+  s21_mpf_div(&c, &a, &b); /* c = 1/3 с округлением */
+  s21_mpf_t back;
+  s21_mpf_init2(&back, 256);
+  s21_mpf_mul(&back, &c, &b); /* back ≈ 1 */
+  s21_mpf_set_ui(&expected, 1);
+  /* Проверяем близость: |back - 1| < 2^-200 */
+  s21_mpf_t diff;
+  s21_mpf_init2(&diff, 256);
+  s21_mpf_sub(&diff, &back, &expected);
+  s21_mpf_abs(&diff, &diff);
+  s21_mpf_t threshold;
+  s21_mpf_init2(&threshold, 256);
+  /* threshold = 2^-200: поставим маленькое число через set_d */
+  s21_mpf_set_d(&threshold, 1e-60);
+  ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "(1/3)*3 ≈ 1");
+  s21_mpf_clear(&diff);
+  s21_mpf_clear(&threshold);
+  s21_mpf_clear(&back);
+
+  s21_mpf_clear(&a);
+  s21_mpf_clear(&b);
+  s21_mpf_clear(&c);
+  s21_mpf_clear(&expected);
+  printf("[ok] div\n");
+}
+
 int main(void) {
   printf("=== s21_mpf: базовые тесты ===\n");
   test_init_clear();
@@ -337,6 +446,7 @@ int main(void) {
   test_cmp();
   test_add_sub();
   test_mul();
+  test_div();
   printf("=== Все тесты прошли ===\n");
   return 0;
 }
