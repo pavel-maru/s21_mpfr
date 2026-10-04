@@ -70,10 +70,43 @@ int  s21_mpf_get_bit(const s21_mpf_t *x, uint32_t pos);  /* 0 или 1 */
 int  s21_mpf_msb(const s21_mpf_t *x);                    /* -1 если всё нулевое */
 int  s21_mpf_lsb(const s21_mpf_t *x);                    /* -1 если всё нулевое */
 
-/* Печать: шестнадцатеричное представление мантиссы и экспоненты */
-void s21_mpf_print(const s21_mpf_t *x);
+/* ============== Сравнение ============== */
 
-/* Печать как double (потеря точности, но удобно для отладки) */
+/* Возвращает:
+     -1, если x < y
+      0, если x == y
+     +1, если x > y
+   Для NaN возвращает 0 (как в MPFR: сравнение с NaN неопределено). */
+int s21_mpf_cmp(const s21_mpf_t *x, const s21_mpf_t *y);
+
+/* То же, но по абсолютной величине (знак игнорируется). */
+int s21_mpf_cmp_abs(const s21_mpf_t *x, const s21_mpf_t *y);
+
+/* Проверки на конкретные значения */
+int s21_mpf_equal(const s21_mpf_t *x, const s21_mpf_t *y);
+int s21_mpf_zero_p(const s21_mpf_t *x);      /* x == 0 */
+int s21_mpf_integer_p(const s21_mpf_t *x);   /* x — целое */
+
+/* ============== Арифметика ============== */
+
+/* res = x + y. Все три должны иметь одинаковую точность. */
+int s21_mpf_add(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y);
+
+/* res = x - y. */
+int s21_mpf_sub(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y);
+
+/* res = -x */
+void s21_mpf_neg(s21_mpf_t *res, const s21_mpf_t *x);
+
+/* res = |x| */
+void s21_mpf_abs(s21_mpf_t *res, const s21_mpf_t *x);
+
+/* Нормализация (обычно вызывается автоматически, но иногда полезна) */
+void s21_mpf_normalize(s21_mpf_t *x);
+
+/* ============== Печать ============== */
+
+void s21_mpf_print(const s21_mpf_t *x);
 void s21_mpf_print_d(const s21_mpf_t *x);
 
 #endif
