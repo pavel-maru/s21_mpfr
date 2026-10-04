@@ -66,68 +66,59 @@ int      s21_mpf_sign(const s21_mpf_t *x);
 uint32_t s21_mpf_get_prec(const s21_mpf_t *x);
 
 /* Низкоуровневые операции над битами мантиссы */
-int  s21_mpf_get_bit(const s21_mpf_t *x, uint32_t pos);  /* 0 или 1 */
-int  s21_mpf_msb(const s21_mpf_t *x);                    /* -1 если всё нулевое */
-int  s21_mpf_lsb(const s21_mpf_t *x);                    /* -1 если всё нулевое */
-
-/* Установить бит позиции pos в значение 0 или 1.
-   Если pos >= prec — ничего не делает. */
+int  s21_mpf_get_bit(const s21_mpf_t *x, uint32_t pos);
+int  s21_mpf_msb(const s21_mpf_t *x);
+int  s21_mpf_lsb(const s21_mpf_t *x);
 void s21_mpf_set_bit(s21_mpf_t *x, uint32_t pos, int value);
-
-/* Сдвиг массива лимбов влево на shift бит: dst = src << shift.
-   dst и src — массивы длины count. Старшие биты, выходящие
-   за пределы массива, отбрасываются. */
 void s21_mpf_shift_left_into(uint64_t *dst, const uint64_t *src,
                              size_t count, int shift);
 
 /* ============== Сравнение ============== */
 
-/* Возвращает:
-     -1, если x < y
-      0, если x == y
-     +1, если x > y
-   Для NaN возвращает 0 (как в MPFR: сравнение с NaN неопределено). */
+/* Возвращает -1 / 0 / +1. Для NaN — 0 (как в MPFR). */
 int s21_mpf_cmp(const s21_mpf_t *x, const s21_mpf_t *y);
-
-/* То же, но по абсолютной величине (знак игнорируется). */
 int s21_mpf_cmp_abs(const s21_mpf_t *x, const s21_mpf_t *y);
-
-/* Проверки на конкретные значения */
 int s21_mpf_equal(const s21_mpf_t *x, const s21_mpf_t *y);
-int s21_mpf_zero_p(const s21_mpf_t *x);      /* x == 0 */
-int s21_mpf_integer_p(const s21_mpf_t *x);   /* x — целое */
+int s21_mpf_zero_p(const s21_mpf_t *x);
+int s21_mpf_integer_p(const s21_mpf_t *x);
 
 /* ============== Арифметика ============== */
 
 /* res = x + y. Все три должны иметь одинаковую точность. */
 int s21_mpf_add(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y);
-
-/* res = x - y. */
 int s21_mpf_sub(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y);
-
-/* res = x * y. */
 int s21_mpf_mul(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y);
-
-/* res = x / y. */
 int s21_mpf_div(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y);
 
-/* res = sqrt(x). x >= 0. */
-int s21_mpf_sqrt(s21_mpf_t *res, const s21_mpf_t *x);
-
-/* res = exp(x). */
-int s21_mpf_exp(s21_mpf_t *res, const s21_mpf_t *x);
-
-/* res = log(x), натуральный. x > 0. */
-int s21_mpf_log(s21_mpf_t *res, const s21_mpf_t *x);
-
-/* res = -x */
+/* res = -x, res = |x| */
 void s21_mpf_neg(s21_mpf_t *res, const s21_mpf_t *x);
-
-/* res = |x| */
 void s21_mpf_abs(s21_mpf_t *res, const s21_mpf_t *x);
 
-/* Нормализация (обычно вызывается автоматически, но иногда полезна) */
+/* Нормализация (обычно вызывается автоматически) */
 void s21_mpf_normalize(s21_mpf_t *x);
+
+/* ============== Элементарные функции ============== */
+
+int s21_mpf_sqrt(s21_mpf_t *res, const s21_mpf_t *x);   /* x >= 0 */
+int s21_mpf_exp(s21_mpf_t *res, const s21_mpf_t *x);
+int s21_mpf_log(s21_mpf_t *res, const s21_mpf_t *x);    /* x > 0 */
+
+/* ============== Константы ============== */
+
+/* res = π с точностью res->prec */
+int s21_mpf_pi(s21_mpf_t *res);
+
+/* ============== Тригонометрия: прямые ============== */
+
+int s21_mpf_sin(s21_mpf_t *res, const s21_mpf_t *x);
+int s21_mpf_cos(s21_mpf_t *res, const s21_mpf_t *x);
+int s21_mpf_tan(s21_mpf_t *res, const s21_mpf_t *x);
+
+/* ============== Тригонометрия: обратные ============== */
+
+int s21_mpf_atan(s21_mpf_t *res, const s21_mpf_t *x);
+int s21_mpf_asin(s21_mpf_t *res, const s21_mpf_t *x);   /* |x| <= 1 */
+int s21_mpf_acos(s21_mpf_t *res, const s21_mpf_t *x);   /* |x| <= 1 */
 
 /* ============== Печать ============== */
 

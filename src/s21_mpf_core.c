@@ -32,7 +32,6 @@ void s21_mpf_clear(s21_mpf_t *x) {
   x->kind = S21_MPF_ZERO;
 }
 
-/* Смена точности. TODO: правильное округление при уменьшении prec. */
 void s21_mpf_set_prec(s21_mpf_t *x, uint32_t prec) {
   if (prec < 2) prec = 2;
   if (prec == x->prec) return;
@@ -941,7 +940,7 @@ int s21_mpf_exp(s21_mpf_t *res, const s21_mpf_t *x) {
 }
 
 /* ============================================================
-   Ряд atanh(z) = z + z^3/3 + z^5/5 + ...
+   Ряд atanh(z)
    ============================================================ */
 
 static void s21_mpf_atanh_series(s21_mpf_t *out, const s21_mpf_t *z,
@@ -1056,7 +1055,7 @@ cleanup:
 }
 
 /* ============================================================
-   Утилиты для тригонометрии
+   Утилиты тригонометрии
    ============================================================ */
 
 static void s21_mpf_trunc(s21_mpf_t *res, const s21_mpf_t *x) {
@@ -1156,6 +1155,10 @@ static void s21_mpf_compute_pi(s21_mpf_t *pi, uint32_t work_prec) {
   s21_mpf_clear(&tmp);
 }
 
+/* ============================================================
+   Константа π
+   ============================================================ */
+
 int s21_mpf_pi(s21_mpf_t *res) {
   if (res == NULL) return -1;
   uint32_t work_prec = res->prec + 64;
@@ -1168,7 +1171,7 @@ int s21_mpf_pi(s21_mpf_t *res) {
 }
 
 /* ============================================================
-   Синус и косинус
+   Тригонометрия: прямые
    ============================================================ */
 
 int s21_mpf_sin(s21_mpf_t *res, const s21_mpf_t *x) {
@@ -1308,8 +1311,47 @@ int s21_mpf_cos(s21_mpf_t *res, const s21_mpf_t *x) {
   return 0;
 }
 
+int s21_mpf_tan(s21_mpf_t *res, const s21_mpf_t *x) {
+  if (res == NULL || x == NULL) return -1;
+  if (x->kind == S21_MPF_NAN || x->kind == S21_MPF_INF) {
+    s21_mpf_set_nan(res);
+    return 0;
+  }
+  if (x->kind == S21_MPF_ZERO) {
+    s21_mpf_set_zero(res, x->sign);
+    return 0;
+  }
+
+  uint32_t work_prec = res->prec + 64;
+
+  s21_mpf_t a, s, c, result;
+  s21_mpf_init2(&a, work_prec);
+  s21_mpf_init2(&s, work_prec);
+  s21_mpf_init2(&c, work_prec);
+  s21_mpf_init2(&result, work_prec);
+
+  s21_mpf_set(&a, x);
+  s21_mpf_sin(&s, &a);
+  s21_mpf_cos(&c, &a);
+
+  if (s21_mpf_is_zero(&c)) {
+    s21_mpf_set_inf(res, 0);
+    goto cleanup;
+  }
+
+  s21_mpf_div(&result, &s, &c);
+  s21_mpf_set(res, &result);
+
+cleanup:
+  s21_mpf_clear(&a);
+  s21_mpf_clear(&s);
+  s21_mpf_clear(&c);
+  s21_mpf_clear(&result);
+  return 0;
+}
+
 /* ============================================================
-   Арктангенс
+   Тригонометрия: обратные
    ============================================================ */
 
 int s21_mpf_atan(s21_mpf_t *res, const s21_mpf_t *x) {
@@ -1380,6 +1422,109 @@ cleanup:
   s21_mpf_clear(&a);
   s21_mpf_clear(&tmp);
   s21_mpf_clear(&sq);
+  return 0;
+}
+
+int s21_mpf_asin(s21_mpf_t *res, const s21_mpf_t *x) {
+  if (res == NULL || x == NULL) return -1;
+  if (x->kind == S21_MPF_NAN) { s21_mpf_set_nan(res); return 0; }
+
+  uint32_t work_prec = res->prec + 64;
+
+  s21_mpf_t a, one, sq, num, den, at, result;
+  s21_mpf_init2(&a, work_prec);
+  s21_mpf_init2(&one, work_prec);
+  s21_mpf_init2(&sq, work_prec);
+  s21_mpf_init2(&num, work_prec);
+  s21_mpf_init2(&den, work_prec);
+  s21_mpf_init2(&at, work_prec);
+  s21_mpf_init2(&result, work_prec);
+
+  s21_mpf_set(&a, x);
+
+  if (a.kind == S21_MPF_INF) {
+    s21_mpf_set_nan(res);
+    goto cleanup;
+  }
+  s21_mpf_abs(&a, &a);
+  s21_mpf_set_ui(&one, 1);
+  if (s21_mpf_cmp(&a, &one) > 0) {
+    s21_mpf_set_nan(res);
+    goto cleanup;
+  }
+
+  /* asin(x) = atan(x / sqrt(1 - x²)) */
+  s21_mpf_set(&a, x);
+  s21_mpf_mul(&sq, &a, &a);
+  s21_mpf_sub(&den, &one, &sq);
+  s21_mpf_sqrt(&den, &den);
+  s21_mpf_div(&num, &a, &den);
+
+  s21_mpf_atan(&at, &num);
+  s21_mpf_set(res, &at);
+
+cleanup:
+  s21_mpf_clear(&a);
+  s21_mpf_clear(&one);
+  s21_mpf_clear(&sq);
+  s21_mpf_clear(&num);
+  s21_mpf_clear(&den);
+  s21_mpf_clear(&at);
+  s21_mpf_clear(&result);
+  return 0;
+}
+
+int s21_mpf_acos(s21_mpf_t *res, const s21_mpf_t *x) {
+  if (res == NULL || x == NULL) return -1;
+  if (x->kind == S21_MPF_NAN) { s21_mpf_set_nan(res); return 0; }
+
+  uint32_t work_prec = res->prec + 64;
+
+  s21_mpf_t a, one, as, pi_2, result;
+  s21_mpf_init2(&a, work_prec);
+  s21_mpf_init2(&one, work_prec);
+  s21_mpf_init2(&as, work_prec);
+  s21_mpf_init2(&pi_2, work_prec);
+  s21_mpf_init2(&result, work_prec);
+
+  s21_mpf_set(&a, x);
+  s21_mpf_set_ui(&one, 1);
+  s21_mpf_abs(&a, &a);
+
+  if (a.kind == S21_MPF_INF || s21_mpf_cmp(&a, &one) > 0) {
+    s21_mpf_set_nan(res);
+    goto cleanup;
+  }
+
+  /* Специальные случаи x = ±1: разные пути вычисления π/2 в asin
+     и compute_pi дают несовпадающие младшие биты, поэтому разность
+     не даёт чистый 0 или π. Обрабатываем явно. */
+  if (s21_mpf_cmp(&a, &one) == 0) {
+    if (x->sign == 0) {
+      s21_mpf_set_zero(res, 0);            /* acos(1) = 0 */
+    } else {
+      s21_mpf_compute_pi(&result, work_prec); /* acos(-1) = π */
+      s21_mpf_set(res, &result);
+    }
+    goto cleanup;
+  }
+
+  /* Общий случай: acos(x) = π/2 - asin(x) */
+  s21_mpf_asin(&as, x);
+
+  s21_mpf_compute_pi(&pi_2, work_prec);
+  pi_2.exp -= 1;
+  s21_mpf_normalize(&pi_2);
+
+  s21_mpf_sub(&result, &pi_2, &as);
+  s21_mpf_set(res, &result);
+
+cleanup:
+  s21_mpf_clear(&a);
+  s21_mpf_clear(&one);
+  s21_mpf_clear(&as);
+  s21_mpf_clear(&pi_2);
+  s21_mpf_clear(&result);
   return 0;
 }
 
