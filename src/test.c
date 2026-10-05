@@ -442,6 +442,59 @@ static void test_mul(void) {
   printf("[ok] mul\n");
 }
 
+static void test_nonmult32_prec(void) {
+  s21_mpf_t a, b, c, expected;
+
+  /* prec = 33 — не кратно 32 */
+  s21_mpf_init2(&a, 33);
+  s21_mpf_init2(&b, 33);
+  s21_mpf_init2(&c, 33);
+  s21_mpf_init2(&expected, 33);
+
+  s21_mpf_set_ui(&a, 3);
+  s21_mpf_set_ui(&b, 5);
+  s21_mpf_mul(&c, &a, &b);
+  s21_mpf_set_ui(&expected, 15);
+  ASSERT(s21_mpf_cmp(&c, &expected) == 0, "3 * 5 = 15 при prec=33");
+
+  s21_mpf_clear(&a); s21_mpf_clear(&b); s21_mpf_clear(&c);
+  s21_mpf_clear(&expected);
+
+  /* prec = 100 */
+  s21_mpf_init2(&a, 100);
+  s21_mpf_init2(&b, 100);
+  s21_mpf_init2(&c, 100);
+  s21_mpf_init2(&expected, 100);
+
+  s21_mpf_set_ui(&a, 1234);
+  s21_mpf_set_ui(&b, 5678);
+  s21_mpf_mul(&c, &a, &b);
+  s21_mpf_set_ui(&expected, 7006652);
+  ASSERT(s21_mpf_cmp(&c, &expected) == 0,
+         "1234 * 5678 = 7006652 при prec=100");
+
+  s21_mpf_clear(&a); s21_mpf_clear(&b); s21_mpf_clear(&c);
+  s21_mpf_clear(&expected);
+
+  /* prec = 130 */
+  s21_mpf_init2(&a, 130);
+  s21_mpf_init2(&b, 130);
+  s21_mpf_init2(&c, 130);
+  s21_mpf_init2(&expected, 130);
+
+  s21_mpf_set_ui(&a, 1000000);
+  s21_mpf_set_ui(&b, 1000000);
+  s21_mpf_mul(&c, &a, &b);
+  s21_mpf_set_ui(&expected, 1000000000000UL);
+  ASSERT(s21_mpf_cmp(&c, &expected) == 0,
+         "1e6 * 1e6 = 1e12 при prec=130");
+
+  s21_mpf_clear(&a); s21_mpf_clear(&b); s21_mpf_clear(&c);
+  s21_mpf_clear(&expected);
+
+  printf("[ok] prec, не кратные 32 (33, 100, 130)\n");
+}
+
 static void test_div(void) {
   s21_mpf_t a, b, c, expected;
   s21_mpf_init2(&a, 256);
@@ -1186,6 +1239,7 @@ int main(void) {
   test_cmp_mixed_prec();
   test_add_sub();
   test_mul();
+  test_nonmult32_prec();
   test_div();
   test_null_checks();
   test_bit_utils();

@@ -290,6 +290,10 @@ int s21_mpf_mul(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
     s21_mpf_set_zero(res, x->sign ^ y->sign); return 0;
   }
 
+  /* Работаем в точности wp = 2 * prec результата: мантиссы
+     операндов поднимаются в wp бит, произведение умещается
+     в 2 * wp бит, старшие биты после приведения дают точность
+     prec с запасом на округление. */
   uint32_t wp = 2 * res->prec;
   s21_mpf_t xw, yw;
   s21_mpf_init2(&xw, wp);
@@ -301,10 +305,18 @@ int s21_mpf_mul(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
   uint64_t *prod = malloc(2 * wcount * sizeof(uint64_t));
   s21_mpf_mul_mant(prod, xw.limbs, yw.limbs, wcount);
 
-  uint32_t prec_prod = (uint32_t)(2 * wcount * 64);
+  /* Раньше temp.prec выставлялся как 2 * wcount * 64 — округление
+     до границы лимба. Это совпадает с 2 * wp только когда prec
+     кратно 32; иначе normalize() уводил MSB выше реального
+     значения, а exp не получал поправки, и результат уезжал
+     на (2 * wcount * 64 - 2 * wp) бит. Теперь temp.prec равен
+     реальной точности произведения 2 * wp, копируются только
+     значащие лимбы. */
+  uint32_t prod_prec = 2 * wp;
   s21_mpf_t temp;
-  s21_mpf_init2(&temp, prec_prod);
-  memcpy(temp.limbs, prod, 2 * wcount * sizeof(uint64_t));
+  s21_mpf_init2(&temp, prod_prec);
+  memcpy(temp.limbs, prod,
+         s21_mpf_limbs_for_prec(prod_prec) * sizeof(uint64_t));
   free(prod);
 
   temp.exp = xw.exp + yw.exp;
