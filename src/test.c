@@ -107,6 +107,85 @@ static void test_precision(void) {
   printf("[ok] precisions 2..512\n");
 }
 
+static void test_small_prec(void) {
+  s21_mpf_t x, y, z, expected;
+
+  /* prec = 2: представимы 0, 1, 2, 3 */
+  s21_mpf_init2(&x, 2);
+  s21_mpf_init2(&y, 2);
+  s21_mpf_init2(&z, 2);
+  s21_mpf_init2(&expected, 2);
+
+  s21_mpf_set_ui(&x, 1);
+  ASSERT(x.kind == S21_MPF_NORMAL, "1 при prec=2 — NORMAL");
+  ASSERT(s21_mpf_msb(&x) == 1, "1 при prec=2 — MSB на 1");
+
+  s21_mpf_set_ui(&x, 3);
+  ASSERT(s21_mpf_msb(&x) == 1, "3 при prec=2 — MSB на 1");
+
+  s21_mpf_set_ui(&x, 1);
+  s21_mpf_set_ui(&y, 2);
+  s21_mpf_add(&z, &x, &y);
+  s21_mpf_set_ui(&expected, 3);
+  ASSERT(s21_mpf_cmp(&z, &expected) == 0, "1 + 2 = 3 при prec=2");
+
+  s21_mpf_set_ui(&x, 3);
+  s21_mpf_set_ui(&y, 1);
+  s21_mpf_sub(&z, &x, &y);
+  s21_mpf_set_ui(&expected, 2);
+  ASSERT(s21_mpf_cmp(&z, &expected) == 0, "3 - 1 = 2 при prec=2");
+
+  s21_mpf_clear(&x); s21_mpf_clear(&y); s21_mpf_clear(&z);
+  s21_mpf_clear(&expected);
+
+  /* prec = 3 */
+  s21_mpf_init2(&x, 3);
+  s21_mpf_init2(&y, 3);
+  s21_mpf_init2(&z, 3);
+  s21_mpf_init2(&expected, 3);
+
+  s21_mpf_set_ui(&x, 5);
+  s21_mpf_set_ui(&y, 2);
+  s21_mpf_add(&z, &x, &y);
+  s21_mpf_set_ui(&expected, 7);
+  ASSERT(s21_mpf_cmp(&z, &expected) == 0, "5 + 2 = 7 при prec=3");
+
+  s21_mpf_clear(&x); s21_mpf_clear(&y); s21_mpf_clear(&z);
+  s21_mpf_clear(&expected);
+
+  /* prec = 5 */
+  s21_mpf_init2(&x, 5);
+  s21_mpf_init2(&y, 5);
+  s21_mpf_init2(&z, 5);
+  s21_mpf_init2(&expected, 5);
+
+  s21_mpf_set_ui(&x, 15);
+  s21_mpf_set_ui(&y, 16);
+  s21_mpf_add(&z, &x, &y);
+  s21_mpf_set_ui(&expected, 31);
+  ASSERT(s21_mpf_cmp(&z, &expected) == 0, "15 + 16 = 31 при prec=5");
+
+  s21_mpf_clear(&x); s21_mpf_clear(&y); s21_mpf_clear(&z);
+  s21_mpf_clear(&expected);
+
+  /* prec = 8 */
+  s21_mpf_init2(&x, 8);
+  s21_mpf_init2(&y, 8);
+  s21_mpf_init2(&z, 8);
+  s21_mpf_init2(&expected, 8);
+
+  s21_mpf_set_ui(&x, 100);
+  s21_mpf_set_ui(&y, 27);
+  s21_mpf_sub(&z, &x, &y);
+  s21_mpf_set_ui(&expected, 73);
+  ASSERT(s21_mpf_cmp(&z, &expected) == 0, "100 - 27 = 73 при prec=8");
+
+  s21_mpf_clear(&x); s21_mpf_clear(&y); s21_mpf_clear(&z);
+  s21_mpf_clear(&expected);
+
+  printf("[ok] малые precisions (2, 3, 5, 8)\n");
+}
+
 static void test_cmp(void) {
   s21_mpf_t a, b;
   s21_mpf_init2(&a, 256);
@@ -173,6 +252,43 @@ static void test_cmp(void) {
   s21_mpf_clear(&a);
   s21_mpf_clear(&b);
   printf("[ok] cmp / cmp_abs / equal / integer_p\n");
+}
+
+static void test_cmp_mixed_prec(void) {
+  s21_mpf_t a256, b64, eps;
+  s21_mpf_init2(&a256, 256);
+  s21_mpf_init2(&b64, 64);
+  s21_mpf_init2(&eps, 256);
+
+  /* Равные значения в разных точностях */
+  s21_mpf_set_ui(&a256, 1);
+  s21_mpf_set_ui(&b64, 1);
+  ASSERT(s21_mpf_cmp_abs(&a256, &b64) == 0, "1 (256) == 1 (64)");
+  ASSERT(s21_mpf_cmp(&a256, &b64) == 0, "1 (256) == 1 (64)");
+
+  s21_mpf_set_d(&a256, 0.5);
+  s21_mpf_set_d(&b64, 0.5);
+  ASSERT(s21_mpf_cmp_abs(&a256, &b64) == 0, "0.5 (256) == 0.5 (64)");
+
+  /* a = 1 + 2^-100 в prec=256, b = 1 в prec=64.
+     Разница 2^-100 << 2^-52, double её не видит. */
+  s21_mpf_set_ui(&a256, 1);
+  s21_mpf_set_ui(&eps, 1);
+  eps.exp -= 100;
+  s21_mpf_normalize(&eps);
+  s21_mpf_add(&a256, &a256, &eps);
+
+  s21_mpf_set_ui(&b64, 1);
+
+  ASSERT(s21_mpf_cmp_abs(&a256, &b64) > 0,
+         "1 + 2^-100 (256) > 1 (64) — double-приближение не видит разницы");
+  ASSERT(s21_mpf_cmp_abs(&b64, &a256) < 0,
+         "1 (64) < 1 + 2^-100 (256)");
+
+  s21_mpf_clear(&a256);
+  s21_mpf_clear(&b64);
+  s21_mpf_clear(&eps);
+  printf("[ok] cmp / cmp_abs (mixed prec)\n");
 }
 
 static void test_add_sub(void) {
@@ -1065,7 +1181,9 @@ int main(void) {
   test_set_d();
   test_special();
   test_precision();
+  test_small_prec();
   test_cmp();
+  test_cmp_mixed_prec();
   test_add_sub();
   test_mul();
   test_div();
