@@ -1,8 +1,8 @@
-#include "s21_mpf.h"
-#include "s21_mpf_internal.h"
-
 #include <stdlib.h>
 #include <string.h>
+
+#include "s21_mpf.h"
+#include "s21_mpf_internal.h"
 
 /* ============================================================
    Квадратный корень
@@ -10,10 +10,22 @@
 
 int s21_mpf_sqrt(s21_mpf_t *res, const s21_mpf_t *x) {
   if (res == NULL || x == NULL) return -1;
-  if (x->kind == S21_MPF_NAN) { s21_mpf_set_nan(res); return 0; }
-  if (x->kind == S21_MPF_ZERO) { s21_mpf_set_zero(res, 0); return 0; }
-  if (x->sign == 1) { s21_mpf_set_nan(res); return 0; }
-  if (x->kind == S21_MPF_INF) { s21_mpf_set_inf(res, 0); return 0; }
+  if (x->kind == S21_MPF_NAN) {
+    s21_mpf_set_nan(res);
+    return 0;
+  }
+  if (x->kind == S21_MPF_ZERO) {
+    s21_mpf_set_zero(res, 0);
+    return 0;
+  }
+  if (x->sign == 1) {
+    s21_mpf_set_nan(res);
+    return 0;
+  }
+  if (x->kind == S21_MPF_INF) {
+    s21_mpf_set_inf(res, 0);
+    return 0;
+  }
 
   uint32_t wp = res->prec + 64;
 
@@ -55,11 +67,19 @@ int s21_mpf_sqrt(s21_mpf_t *res, const s21_mpf_t *x) {
 
 int s21_mpf_exp(s21_mpf_t *res, const s21_mpf_t *x) {
   if (res == NULL || x == NULL) return -1;
-  if (x->kind == S21_MPF_NAN) { s21_mpf_set_nan(res); return 0; }
-  if (x->kind == S21_MPF_ZERO) { s21_mpf_set_ui(res, 1); return 0; }
+  if (x->kind == S21_MPF_NAN) {
+    s21_mpf_set_nan(res);
+    return 0;
+  }
+  if (x->kind == S21_MPF_ZERO) {
+    s21_mpf_set_ui(res, 1);
+    return 0;
+  }
   if (x->kind == S21_MPF_INF) {
-    if (x->sign == 0) s21_mpf_set_inf(res, 0);
-    else s21_mpf_set_zero(res, 0);
+    if (x->sign == 0)
+      s21_mpf_set_inf(res, 0);
+    else
+      s21_mpf_set_zero(res, 0);
     return 0;
   }
 
@@ -74,7 +94,10 @@ int s21_mpf_exp(s21_mpf_t *res, const s21_mpf_t *x) {
   s21_mpf_set(&y, &a);
 
   int s = 0;
-  while (y.exp > -1 && s < 128) { y.exp -= 1; s++; }
+  while (y.exp > -1 && s < 128) {
+    y.exp -= 1;
+    s++;
+  }
 
   s21_mpf_set_ui(&sum, 1);
   s21_mpf_set_ui(&term, 1);
@@ -134,10 +157,22 @@ static void s21_mpf_atanh_series(s21_mpf_t *out, const s21_mpf_t *z,
 
 int s21_mpf_log(s21_mpf_t *res, const s21_mpf_t *x) {
   if (res == NULL || x == NULL) return -1;
-  if (x->kind == S21_MPF_NAN) { s21_mpf_set_nan(res); return 0; }
-  if (x->kind == S21_MPF_ZERO) { s21_mpf_set_inf(res, 1); return 0; }
-  if (x->sign == 1) { s21_mpf_set_nan(res); return 0; }
-  if (x->kind == S21_MPF_INF) { s21_mpf_set_inf(res, 0); return 0; }
+  if (x->kind == S21_MPF_NAN) {
+    s21_mpf_set_nan(res);
+    return 0;
+  }
+  if (x->kind == S21_MPF_ZERO) {
+    s21_mpf_set_inf(res, 1);
+    return 0;
+  }
+  if (x->sign == 1) {
+    s21_mpf_set_nan(res);
+    return 0;
+  }
+  if (x->kind == S21_MPF_INF) {
+    s21_mpf_set_inf(res, 0);
+    return 0;
+  }
 
   uint32_t wp = res->prec + 64;
   s21_mpf_t a, y, z, num, den, log_y, ln2, k_ln2, result, one, three, kk;
@@ -190,10 +225,18 @@ int s21_mpf_log(s21_mpf_t *res, const s21_mpf_t *x) {
     }
   }
 
-  s21_mpf_clear(&a); s21_mpf_clear(&y); s21_mpf_clear(&z);
-  s21_mpf_clear(&num); s21_mpf_clear(&den); s21_mpf_clear(&log_y);
-  s21_mpf_clear(&ln2); s21_mpf_clear(&k_ln2); s21_mpf_clear(&result);
-  s21_mpf_clear(&one); s21_mpf_clear(&three); s21_mpf_clear(&kk);
+  s21_mpf_clear(&a);
+  s21_mpf_clear(&y);
+  s21_mpf_clear(&z);
+  s21_mpf_clear(&num);
+  s21_mpf_clear(&den);
+  s21_mpf_clear(&log_y);
+  s21_mpf_clear(&ln2);
+  s21_mpf_clear(&k_ln2);
+  s21_mpf_clear(&result);
+  s21_mpf_clear(&one);
+  s21_mpf_clear(&three);
+  s21_mpf_clear(&kk);
   return 0;
 }
 
@@ -202,8 +245,14 @@ int s21_mpf_log(s21_mpf_t *res, const s21_mpf_t *x) {
    ============================================================ */
 
 static void s21_mpf_trunc(s21_mpf_t *res, const s21_mpf_t *x) {
-  if (x->kind != S21_MPF_NORMAL) { s21_mpf_set(res, x); return; }
-  if (x->exp <= 0) { s21_mpf_set_zero(res, x->sign); return; }
+  if (x->kind != S21_MPF_NORMAL) {
+    s21_mpf_set(res, x);
+    return;
+  }
+  if (x->exp <= 0) {
+    s21_mpf_set_zero(res, x->sign);
+    return;
+  }
 
   s21_mpf_set(res, x);
   if (res->exp >= (int64_t)res->prec) return;
@@ -216,7 +265,10 @@ static void s21_mpf_trunc(s21_mpf_t *res, const s21_mpf_t *x) {
 }
 
 static void s21_mpf_round_nearest(s21_mpf_t *res, const s21_mpf_t *x) {
-  if (x->kind == S21_MPF_ZERO) { s21_mpf_set_zero(res, x->sign); return; }
+  if (x->kind == S21_MPF_ZERO) {
+    s21_mpf_set_zero(res, x->sign);
+    return;
+  }
 
   s21_mpf_t half, shifted;
   s21_mpf_init2(&half, x->prec);
@@ -257,8 +309,10 @@ static void s21_mpf_atan_small_series(s21_mpf_t *out, const s21_mpf_t *z,
   }
 
   s21_mpf_set(out, &sum);
-  s21_mpf_clear(&z2); s21_mpf_clear(&term);
-  s21_mpf_clear(&sum); s21_mpf_clear(&tmp);
+  s21_mpf_clear(&z2);
+  s21_mpf_clear(&term);
+  s21_mpf_clear(&sum);
+  s21_mpf_clear(&tmp);
 }
 
 static void s21_mpf_compute_pi(s21_mpf_t *pi, uint32_t wp) {
@@ -287,8 +341,13 @@ static void s21_mpf_compute_pi(s21_mpf_t *pi, uint32_t wp) {
 
   s21_mpf_sub_raw(pi, &a, &b);
 
-  s21_mpf_clear(&one); s21_mpf_clear(&five); s21_mpf_clear(&k239);
-  s21_mpf_clear(&z); s21_mpf_clear(&a); s21_mpf_clear(&b); s21_mpf_clear(&tmp);
+  s21_mpf_clear(&one);
+  s21_mpf_clear(&five);
+  s21_mpf_clear(&k239);
+  s21_mpf_clear(&z);
+  s21_mpf_clear(&a);
+  s21_mpf_clear(&b);
+  s21_mpf_clear(&tmp);
 }
 
 int s21_mpf_pi(s21_mpf_t *res) {
@@ -309,17 +368,26 @@ int s21_mpf_pi(s21_mpf_t *res) {
 int s21_mpf_sin(s21_mpf_t *res, const s21_mpf_t *x) {
   if (res == NULL || x == NULL) return -1;
   if (x->kind == S21_MPF_NAN || x->kind == S21_MPF_INF) {
-    s21_mpf_set_nan(res); return 0;
+    s21_mpf_set_nan(res);
+    return 0;
   }
-  if (x->kind == S21_MPF_ZERO) { s21_mpf_set_zero(res, x->sign); return 0; }
+  if (x->kind == S21_MPF_ZERO) {
+    s21_mpf_set_zero(res, x->sign);
+    return 0;
+  }
 
   uint32_t wp = res->prec + 64;
   s21_mpf_t a, pi, two_pi, q, q_r, r, term, sum, x2, tmp;
-  s21_mpf_init2(&a, wp); s21_mpf_init2(&pi, wp);
-  s21_mpf_init2(&two_pi, wp); s21_mpf_init2(&q, wp);
-  s21_mpf_init2(&q_r, wp); s21_mpf_init2(&r, wp);
-  s21_mpf_init2(&term, wp); s21_mpf_init2(&sum, wp);
-  s21_mpf_init2(&x2, wp); s21_mpf_init2(&tmp, wp);
+  s21_mpf_init2(&a, wp);
+  s21_mpf_init2(&pi, wp);
+  s21_mpf_init2(&two_pi, wp);
+  s21_mpf_init2(&q, wp);
+  s21_mpf_init2(&q_r, wp);
+  s21_mpf_init2(&r, wp);
+  s21_mpf_init2(&term, wp);
+  s21_mpf_init2(&sum, wp);
+  s21_mpf_init2(&x2, wp);
+  s21_mpf_init2(&tmp, wp);
 
   s21_mpf_set(&a, x);
   s21_mpf_compute_pi(&pi, wp);
@@ -350,26 +418,42 @@ int s21_mpf_sin(s21_mpf_t *res, const s21_mpf_t *x) {
 
   s21_mpf_set(res, &sum);
 
-  s21_mpf_clear(&a); s21_mpf_clear(&pi); s21_mpf_clear(&two_pi);
-  s21_mpf_clear(&q); s21_mpf_clear(&q_r); s21_mpf_clear(&r);
-  s21_mpf_clear(&term); s21_mpf_clear(&sum); s21_mpf_clear(&x2); s21_mpf_clear(&tmp);
+  s21_mpf_clear(&a);
+  s21_mpf_clear(&pi);
+  s21_mpf_clear(&two_pi);
+  s21_mpf_clear(&q);
+  s21_mpf_clear(&q_r);
+  s21_mpf_clear(&r);
+  s21_mpf_clear(&term);
+  s21_mpf_clear(&sum);
+  s21_mpf_clear(&x2);
+  s21_mpf_clear(&tmp);
   return 0;
 }
 
 int s21_mpf_cos(s21_mpf_t *res, const s21_mpf_t *x) {
   if (res == NULL || x == NULL) return -1;
   if (x->kind == S21_MPF_NAN || x->kind == S21_MPF_INF) {
-    s21_mpf_set_nan(res); return 0;
+    s21_mpf_set_nan(res);
+    return 0;
   }
-  if (x->kind == S21_MPF_ZERO) { s21_mpf_set_ui(res, 1); return 0; }
+  if (x->kind == S21_MPF_ZERO) {
+    s21_mpf_set_ui(res, 1);
+    return 0;
+  }
 
   uint32_t wp = res->prec + 64;
   s21_mpf_t a, pi, two_pi, q, q_r, r, term, sum, x2, tmp, one;
-  s21_mpf_init2(&a, wp); s21_mpf_init2(&pi, wp);
-  s21_mpf_init2(&two_pi, wp); s21_mpf_init2(&q, wp);
-  s21_mpf_init2(&q_r, wp); s21_mpf_init2(&r, wp);
-  s21_mpf_init2(&term, wp); s21_mpf_init2(&sum, wp);
-  s21_mpf_init2(&x2, wp); s21_mpf_init2(&tmp, wp);
+  s21_mpf_init2(&a, wp);
+  s21_mpf_init2(&pi, wp);
+  s21_mpf_init2(&two_pi, wp);
+  s21_mpf_init2(&q, wp);
+  s21_mpf_init2(&q_r, wp);
+  s21_mpf_init2(&r, wp);
+  s21_mpf_init2(&term, wp);
+  s21_mpf_init2(&sum, wp);
+  s21_mpf_init2(&x2, wp);
+  s21_mpf_init2(&tmp, wp);
   s21_mpf_init2(&one, wp);
 
   s21_mpf_set(&a, x);
@@ -402,24 +486,37 @@ int s21_mpf_cos(s21_mpf_t *res, const s21_mpf_t *x) {
 
   s21_mpf_set(res, &sum);
 
-  s21_mpf_clear(&a); s21_mpf_clear(&pi); s21_mpf_clear(&two_pi);
-  s21_mpf_clear(&q); s21_mpf_clear(&q_r); s21_mpf_clear(&r);
-  s21_mpf_clear(&term); s21_mpf_clear(&sum);
-  s21_mpf_clear(&x2); s21_mpf_clear(&tmp); s21_mpf_clear(&one);
+  s21_mpf_clear(&a);
+  s21_mpf_clear(&pi);
+  s21_mpf_clear(&two_pi);
+  s21_mpf_clear(&q);
+  s21_mpf_clear(&q_r);
+  s21_mpf_clear(&r);
+  s21_mpf_clear(&term);
+  s21_mpf_clear(&sum);
+  s21_mpf_clear(&x2);
+  s21_mpf_clear(&tmp);
+  s21_mpf_clear(&one);
   return 0;
 }
 
 int s21_mpf_tan(s21_mpf_t *res, const s21_mpf_t *x) {
   if (res == NULL || x == NULL) return -1;
   if (x->kind == S21_MPF_NAN || x->kind == S21_MPF_INF) {
-    s21_mpf_set_nan(res); return 0;
+    s21_mpf_set_nan(res);
+    return 0;
   }
-  if (x->kind == S21_MPF_ZERO) { s21_mpf_set_zero(res, x->sign); return 0; }
+  if (x->kind == S21_MPF_ZERO) {
+    s21_mpf_set_zero(res, x->sign);
+    return 0;
+  }
 
   uint32_t wp = res->prec + 64;
   s21_mpf_t a, s, c, result;
-  s21_mpf_init2(&a, wp); s21_mpf_init2(&s, wp);
-  s21_mpf_init2(&c, wp); s21_mpf_init2(&result, wp);
+  s21_mpf_init2(&a, wp);
+  s21_mpf_init2(&s, wp);
+  s21_mpf_init2(&c, wp);
+  s21_mpf_init2(&result, wp);
 
   s21_mpf_set(&a, x);
   s21_mpf_sin(&s, &a);
@@ -432,8 +529,10 @@ int s21_mpf_tan(s21_mpf_t *res, const s21_mpf_t *x) {
     s21_mpf_set(res, &result);
   }
 
-  s21_mpf_clear(&a); s21_mpf_clear(&s);
-  s21_mpf_clear(&c); s21_mpf_clear(&result);
+  s21_mpf_clear(&a);
+  s21_mpf_clear(&s);
+  s21_mpf_clear(&c);
+  s21_mpf_clear(&result);
   return 0;
 }
 
@@ -443,13 +542,21 @@ int s21_mpf_tan(s21_mpf_t *res, const s21_mpf_t *x) {
 
 int s21_mpf_atan(s21_mpf_t *res, const s21_mpf_t *x) {
   if (res == NULL || x == NULL) return -1;
-  if (x->kind == S21_MPF_NAN) { s21_mpf_set_nan(res); return 0; }
-  if (x->kind == S21_MPF_ZERO) { s21_mpf_set_zero(res, x->sign); return 0; }
+  if (x->kind == S21_MPF_NAN) {
+    s21_mpf_set_nan(res);
+    return 0;
+  }
+  if (x->kind == S21_MPF_ZERO) {
+    s21_mpf_set_zero(res, x->sign);
+    return 0;
+  }
 
   uint32_t wp = res->prec + 64;
   s21_mpf_t one, pi, pi_2, a, sq;
-  s21_mpf_init2(&one, wp); s21_mpf_init2(&pi, wp);
-  s21_mpf_init2(&pi_2, wp); s21_mpf_init2(&a, wp);
+  s21_mpf_init2(&one, wp);
+  s21_mpf_init2(&pi, wp);
+  s21_mpf_init2(&pi_2, wp);
+  s21_mpf_init2(&a, wp);
   s21_mpf_init2(&sq, wp);
 
   s21_mpf_set_ui(&one, 1);
@@ -496,20 +603,29 @@ int s21_mpf_atan(s21_mpf_t *res, const s21_mpf_t *x) {
     s21_mpf_set(res, &a);
   }
 
-  s21_mpf_clear(&one); s21_mpf_clear(&pi); s21_mpf_clear(&pi_2);
-  s21_mpf_clear(&a); s21_mpf_clear(&sq);
+  s21_mpf_clear(&one);
+  s21_mpf_clear(&pi);
+  s21_mpf_clear(&pi_2);
+  s21_mpf_clear(&a);
+  s21_mpf_clear(&sq);
   return 0;
 }
 
 int s21_mpf_asin(s21_mpf_t *res, const s21_mpf_t *x) {
   if (res == NULL || x == NULL) return -1;
-  if (x->kind == S21_MPF_NAN) { s21_mpf_set_nan(res); return 0; }
+  if (x->kind == S21_MPF_NAN) {
+    s21_mpf_set_nan(res);
+    return 0;
+  }
 
   uint32_t wp = res->prec + 64;
   s21_mpf_t a, one, sq, num, den, at;
-  s21_mpf_init2(&a, wp); s21_mpf_init2(&one, wp);
-  s21_mpf_init2(&sq, wp); s21_mpf_init2(&num, wp);
-  s21_mpf_init2(&den, wp); s21_mpf_init2(&at, wp);
+  s21_mpf_init2(&a, wp);
+  s21_mpf_init2(&one, wp);
+  s21_mpf_init2(&sq, wp);
+  s21_mpf_init2(&num, wp);
+  s21_mpf_init2(&den, wp);
+  s21_mpf_init2(&at, wp);
 
   s21_mpf_set(&a, x);
   s21_mpf_set_ui(&one, 1);
@@ -517,27 +633,36 @@ int s21_mpf_asin(s21_mpf_t *res, const s21_mpf_t *x) {
   if (s21_mpf_cmp_abs(&a, &one) > 0) {
     s21_mpf_set_nan(res);
   } else {
-    s21_mpf_mul_raw(&sq, &a, &a);        /* sq = x² */
-    s21_mpf_sub_raw(&sq, &one, &sq);     /* sq = 1 - x² */
-    s21_mpf_sqrt(&den, &sq);             /* den = √(1 - x²) */
-    s21_mpf_div_raw(&num, &a, &den);     /* num = x / den */
-    s21_mpf_atan(&at, &num);             /* at = atan(num) */
+    s21_mpf_mul_raw(&sq, &a, &a);    /* sq = x² */
+    s21_mpf_sub_raw(&sq, &one, &sq); /* sq = 1 - x² */
+    s21_mpf_sqrt(&den, &sq);         /* den = √(1 - x²) */
+    s21_mpf_div_raw(&num, &a, &den); /* num = x / den */
+    s21_mpf_atan(&at, &num);         /* at = atan(num) */
     s21_mpf_set(res, &at);
   }
 
-  s21_mpf_clear(&a); s21_mpf_clear(&one); s21_mpf_clear(&sq);
-  s21_mpf_clear(&num); s21_mpf_clear(&den); s21_mpf_clear(&at);
+  s21_mpf_clear(&a);
+  s21_mpf_clear(&one);
+  s21_mpf_clear(&sq);
+  s21_mpf_clear(&num);
+  s21_mpf_clear(&den);
+  s21_mpf_clear(&at);
   return 0;
 }
 
 int s21_mpf_acos(s21_mpf_t *res, const s21_mpf_t *x) {
   if (res == NULL || x == NULL) return -1;
-  if (x->kind == S21_MPF_NAN) { s21_mpf_set_nan(res); return 0; }
+  if (x->kind == S21_MPF_NAN) {
+    s21_mpf_set_nan(res);
+    return 0;
+  }
 
   uint32_t wp = res->prec + 64;
   s21_mpf_t a, one, as, pi_2, result;
-  s21_mpf_init2(&a, wp); s21_mpf_init2(&one, wp);
-  s21_mpf_init2(&as, wp); s21_mpf_init2(&pi_2, wp);
+  s21_mpf_init2(&a, wp);
+  s21_mpf_init2(&one, wp);
+  s21_mpf_init2(&as, wp);
+  s21_mpf_init2(&pi_2, wp);
   s21_mpf_init2(&result, wp);
 
   s21_mpf_set(&a, x);
@@ -562,7 +687,10 @@ int s21_mpf_acos(s21_mpf_t *res, const s21_mpf_t *x) {
     s21_mpf_set(res, &result);
   }
 
-  s21_mpf_clear(&a); s21_mpf_clear(&one); s21_mpf_clear(&as);
-  s21_mpf_clear(&pi_2); s21_mpf_clear(&result);
+  s21_mpf_clear(&a);
+  s21_mpf_clear(&one);
+  s21_mpf_clear(&as);
+  s21_mpf_clear(&pi_2);
+  s21_mpf_clear(&result);
   return 0;
 }

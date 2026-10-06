@@ -1,7 +1,7 @@
-#include "s21_mpf.h"
-
 #include <stdlib.h>
 #include <string.h>
+
+#include "s21_mpf.h"
 
 /* ============================================================
    Инициализация и освобождение
@@ -163,7 +163,7 @@ void s21_mpf_set_si(s21_mpf_t *x, long v) {
 }
 
 static void s21_decompose_double(double v, uint64_t *mant, int64_t *exp,
-                                  int *sign) {
+                                 int *sign) {
   union {
     double d;
     uint64_t u;
@@ -184,10 +184,22 @@ static void s21_decompose_double(double v, uint64_t *mant, int64_t *exp,
 }
 
 void s21_mpf_set_d(s21_mpf_t *x, double v) {
-  if (v != v) { s21_mpf_set_nan(x); return; }
-  if (v == 1.0 / 0.0) { s21_mpf_set_inf(x, 0); return; }
-  if (v == -1.0 / 0.0) { s21_mpf_set_inf(x, 1); return; }
-  if (v == 0.0) { s21_mpf_set_zero(x, (1.0 / v < 0) ? 1 : 0); return; }
+  if (v != v) {
+    s21_mpf_set_nan(x);
+    return;
+  }
+  if (v == 1.0 / 0.0) {
+    s21_mpf_set_inf(x, 0);
+    return;
+  }
+  if (v == -1.0 / 0.0) {
+    s21_mpf_set_inf(x, 1);
+    return;
+  }
+  if (v == 0.0) {
+    s21_mpf_set_zero(x, (1.0 / v < 0) ? 1 : 0);
+    return;
+  }
 
   uint64_t mant_d;
   int64_t exp_d;
@@ -252,7 +264,10 @@ int s21_mpf_set_round(s21_mpf_t *dst, const s21_mpf_t *src, s21_mpf_rnd_t rnd) {
     int full_words = top / 64;
     int rem_bits = top % 64;
     for (int i = 0; i < full_words; i++) {
-      if (src->limbs[i] != 0) { sticky = 1; break; }
+      if (src->limbs[i] != 0) {
+        sticky = 1;
+        break;
+      }
     }
     if (!sticky && rem_bits > 0) {
       uint64_t mask = (1ULL << rem_bits) - 1;
@@ -287,14 +302,23 @@ int s21_mpf_set_round(s21_mpf_t *dst, const s21_mpf_t *src, s21_mpf_rnd_t rnd) {
   int round_up = 0;
   if (round_bit || sticky) {
     switch (rnd) {
-      case S21_MPF_RNDZ: round_up = 0; break;
-      case S21_MPF_RNDU: round_up = (src->sign == 0); break;
-      case S21_MPF_RNDD: round_up = (src->sign == 1); break;
+      case S21_MPF_RNDZ:
+        round_up = 0;
+        break;
+      case S21_MPF_RNDU:
+        round_up = (src->sign == 0);
+        break;
+      case S21_MPF_RNDD:
+        round_up = (src->sign == 1);
+        break;
       case S21_MPF_RNDN:
       default:
-        if (round_bit == 0) round_up = 0;
-        else if (sticky) round_up = 1;
-        else round_up = (int)(dst->limbs[0] & 1ULL);
+        if (round_bit == 0)
+          round_up = 0;
+        else if (sticky)
+          round_up = 1;
+        else
+          round_up = (int)(dst->limbs[0] & 1ULL);
         break;
     }
   }

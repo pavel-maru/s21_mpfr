@@ -1,6 +1,6 @@
-#include "s21_mpf.h"
-
 #include <string.h>
+
+#include "s21_mpf.h"
 
 int s21_mpf_get_bit(const s21_mpf_t *x, uint32_t pos) {
   if (pos >= x->prec) return 0;
@@ -42,8 +42,8 @@ int s21_mpf_lsb(const s21_mpf_t *x) {
   return -1;
 }
 
-void s21_mpf_shift_left_into(uint64_t *dst, const uint64_t *src,
-                             size_t count, int shift) {
+void s21_mpf_shift_left_into(uint64_t *dst, const uint64_t *src, size_t count,
+                             int shift) {
   if (shift == 0) {
     memcpy(dst, src, count * sizeof(uint64_t));
     return;

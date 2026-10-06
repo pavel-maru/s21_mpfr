@@ -1,8 +1,8 @@
-#include "s21_mpf.h"
-#include "s21_mpf_internal.h"
-
 #include <stdlib.h>
 #include <string.h>
+
+#include "s21_mpf.h"
+#include "s21_mpf_internal.h"
 
 /* ============================================================
    Сдвиг вправо (внутренний, только для add_raw/sub_raw)
@@ -37,12 +37,15 @@ static void s21_mpf_shift_right_into(uint64_t *dst, const uint64_t *src,
    Сложение / вычитание: raw
    ============================================================ */
 
-void s21_mpf_add_raw(s21_mpf_t *res, const s21_mpf_t *x,
-                     const s21_mpf_t *y) {
+void s21_mpf_add_raw(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
   if (x->sign == y->sign) {
     size_t count = s21_mpf_limbs_for_prec(res->prec);
     const s21_mpf_t *a = x, *b = y;
-    if (a->exp < b->exp) { const s21_mpf_t *t = a; a = b; b = t; }
+    if (a->exp < b->exp) {
+      const s21_mpf_t *t = a;
+      a = b;
+      b = t;
+    }
 
     int64_t shift = a->exp - b->exp;
     uint64_t *b_shifted = calloc(count, sizeof(uint64_t));
@@ -107,12 +110,17 @@ void s21_mpf_add_raw(s21_mpf_t *res, const s21_mpf_t *x,
   }
 }
 
-void s21_mpf_sub_raw(s21_mpf_t *res, const s21_mpf_t *x,
-                     const s21_mpf_t *y) {
+void s21_mpf_sub_raw(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
   const s21_mpf_t *a = x, *b = y;
-  if (a->exp < b->exp) { const s21_mpf_t *t = a; a = b; b = t; }
+  if (a->exp < b->exp) {
+    const s21_mpf_t *t = a;
+    a = b;
+    b = t;
+  }
   if (a->exp == b->exp && s21_mpf_cmp_abs(a, b) < 0) {
-    const s21_mpf_t *t = a; a = b; b = t;
+    const s21_mpf_t *t = a;
+    a = b;
+    b = t;
   }
 
   int64_t shift = a->exp - b->exp;
@@ -153,17 +161,32 @@ int s21_mpf_add(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
   if (res->prec != x->prec || x->prec != y->prec) return -1;
 
   if (x->kind == S21_MPF_NAN || y->kind == S21_MPF_NAN) {
-    s21_mpf_set_nan(res); return 0;
-  }
-  if (x->kind == S21_MPF_INF && y->kind == S21_MPF_INF) {
-    if (x->sign == y->sign) s21_mpf_set_inf(res, x->sign);
-    else s21_mpf_set_nan(res);
+    s21_mpf_set_nan(res);
     return 0;
   }
-  if (x->kind == S21_MPF_INF) { s21_mpf_set_inf(res, x->sign); return 0; }
-  if (y->kind == S21_MPF_INF) { s21_mpf_set_inf(res, y->sign); return 0; }
-  if (x->kind == S21_MPF_ZERO) { s21_mpf_set(res, y); return 0; }
-  if (y->kind == S21_MPF_ZERO) { s21_mpf_set(res, x); return 0; }
+  if (x->kind == S21_MPF_INF && y->kind == S21_MPF_INF) {
+    if (x->sign == y->sign)
+      s21_mpf_set_inf(res, x->sign);
+    else
+      s21_mpf_set_nan(res);
+    return 0;
+  }
+  if (x->kind == S21_MPF_INF) {
+    s21_mpf_set_inf(res, x->sign);
+    return 0;
+  }
+  if (y->kind == S21_MPF_INF) {
+    s21_mpf_set_inf(res, y->sign);
+    return 0;
+  }
+  if (x->kind == S21_MPF_ZERO) {
+    s21_mpf_set(res, y);
+    return 0;
+  }
+  if (y->kind == S21_MPF_ZERO) {
+    s21_mpf_set(res, x);
+    return 0;
+  }
 
   uint32_t wp = res->prec + 64;
   s21_mpf_t xw, yw, rw;
@@ -220,20 +243,23 @@ static void s21_mpf_mul_mant(uint64_t *prod, const uint64_t *a,
   }
 }
 
-int s21_mpf_mul_raw(s21_mpf_t *res, const s21_mpf_t *x,
-                    const s21_mpf_t *y) {
+int s21_mpf_mul_raw(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
   if (x->kind == S21_MPF_NAN || y->kind == S21_MPF_NAN) {
-    s21_mpf_set_nan(res); return 0;
+    s21_mpf_set_nan(res);
+    return 0;
   }
   if (x->kind == S21_MPF_INF || y->kind == S21_MPF_INF) {
     int other_zero = (x->kind == S21_MPF_INF && y->kind == S21_MPF_ZERO) ||
                      (y->kind == S21_MPF_INF && x->kind == S21_MPF_ZERO);
-    if (other_zero) s21_mpf_set_nan(res);
-    else s21_mpf_set_inf(res, x->sign ^ y->sign);
+    if (other_zero)
+      s21_mpf_set_nan(res);
+    else
+      s21_mpf_set_inf(res, x->sign ^ y->sign);
     return 0;
   }
   if (x->kind == S21_MPF_ZERO || y->kind == S21_MPF_ZERO) {
-    s21_mpf_set_zero(res, x->sign ^ y->sign); return 0;
+    s21_mpf_set_zero(res, x->sign ^ y->sign);
+    return 0;
   }
 
   size_t count = s21_mpf_limbs_for_prec(res->prec);
@@ -277,17 +303,21 @@ int s21_mpf_mul(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
   if (res->prec != x->prec || x->prec != y->prec) return -1;
 
   if (x->kind == S21_MPF_NAN || y->kind == S21_MPF_NAN) {
-    s21_mpf_set_nan(res); return 0;
+    s21_mpf_set_nan(res);
+    return 0;
   }
   if (x->kind == S21_MPF_INF || y->kind == S21_MPF_INF) {
     int other_zero = (x->kind == S21_MPF_INF && y->kind == S21_MPF_ZERO) ||
                      (y->kind == S21_MPF_INF && x->kind == S21_MPF_ZERO);
-    if (other_zero) s21_mpf_set_nan(res);
-    else s21_mpf_set_inf(res, x->sign ^ y->sign);
+    if (other_zero)
+      s21_mpf_set_nan(res);
+    else
+      s21_mpf_set_inf(res, x->sign ^ y->sign);
     return 0;
   }
   if (x->kind == S21_MPF_ZERO || y->kind == S21_MPF_ZERO) {
-    s21_mpf_set_zero(res, x->sign ^ y->sign); return 0;
+    s21_mpf_set_zero(res, x->sign ^ y->sign);
+    return 0;
   }
 
   /* Работаем в точности wp = 2 * prec результата: мантиссы
@@ -336,22 +366,34 @@ int s21_mpf_mul(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
    Деление: raw + публичная + div_small
    ============================================================ */
 
-int s21_mpf_div_raw(s21_mpf_t *res, const s21_mpf_t *x,
-                    const s21_mpf_t *y) {
+int s21_mpf_div_raw(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
   if (x->kind == S21_MPF_NAN || y->kind == S21_MPF_NAN) {
-    s21_mpf_set_nan(res); return 0;
-  }
-  if (x->kind == S21_MPF_INF && y->kind == S21_MPF_INF) {
-    s21_mpf_set_nan(res); return 0;
-  }
-  if (x->kind == S21_MPF_INF) { s21_mpf_set_inf(res, x->sign ^ y->sign); return 0; }
-  if (y->kind == S21_MPF_INF) { s21_mpf_set_zero(res, x->sign ^ y->sign); return 0; }
-  if (y->kind == S21_MPF_ZERO) {
-    if (x->kind == S21_MPF_ZERO) s21_mpf_set_nan(res);
-    else s21_mpf_set_inf(res, x->sign ^ y->sign);
+    s21_mpf_set_nan(res);
     return 0;
   }
-  if (x->kind == S21_MPF_ZERO) { s21_mpf_set_zero(res, x->sign ^ y->sign); return 0; }
+  if (x->kind == S21_MPF_INF && y->kind == S21_MPF_INF) {
+    s21_mpf_set_nan(res);
+    return 0;
+  }
+  if (x->kind == S21_MPF_INF) {
+    s21_mpf_set_inf(res, x->sign ^ y->sign);
+    return 0;
+  }
+  if (y->kind == S21_MPF_INF) {
+    s21_mpf_set_zero(res, x->sign ^ y->sign);
+    return 0;
+  }
+  if (y->kind == S21_MPF_ZERO) {
+    if (x->kind == S21_MPF_ZERO)
+      s21_mpf_set_nan(res);
+    else
+      s21_mpf_set_inf(res, x->sign ^ y->sign);
+    return 0;
+  }
+  if (x->kind == S21_MPF_ZERO) {
+    s21_mpf_set_zero(res, x->sign ^ y->sign);
+    return 0;
+  }
 
   uint32_t prec = res->prec;
   size_t count = s21_mpf_limbs_for_prec(prec);
@@ -376,8 +418,14 @@ int s21_mpf_div_raw(s21_mpf_t *res, const s21_mpf_t *x,
     if (!geq) {
       geq = 1;
       for (int w = (int)count - 1; w >= 0; w--) {
-        if (rem[w] < y->limbs[w]) { geq = 0; break; }
-        if (rem[w] > y->limbs[w]) { geq = 1; break; }
+        if (rem[w] < y->limbs[w]) {
+          geq = 0;
+          break;
+        }
+        if (rem[w] > y->limbs[w]) {
+          geq = 1;
+          break;
+        }
       }
     }
 
@@ -429,10 +477,11 @@ int s21_mpf_div(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
   if (res->prec != x->prec || x->prec != y->prec) return -1;
 
   if (x->kind == S21_MPF_NAN || y->kind == S21_MPF_NAN) {
-    s21_mpf_set_nan(res); return 0;
+    s21_mpf_set_nan(res);
+    return 0;
   }
-  if (x->kind == S21_MPF_INF || y->kind == S21_MPF_INF || y->kind == S21_MPF_ZERO ||
-      x->kind == S21_MPF_ZERO) {
+  if (x->kind == S21_MPF_INF || y->kind == S21_MPF_INF ||
+      y->kind == S21_MPF_ZERO || x->kind == S21_MPF_ZERO) {
     return s21_mpf_div_raw(res, x, y);
   }
 

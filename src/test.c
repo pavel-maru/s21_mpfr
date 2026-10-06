@@ -1,15 +1,16 @@
-#include "s21_mpf.h"
-
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 
-#define ASSERT(cond, msg) do { \
-  if (!(cond)) { \
-    fprintf(stderr, "FAIL: %s at %s:%d\n", msg, __FILE__, __LINE__); \
-    exit(1); \
-  } \
-} while (0)
+#include "s21_mpf.h"
+
+#define ASSERT(cond, msg)                                              \
+  do {                                                                 \
+    if (!(cond)) {                                                     \
+      fprintf(stderr, "FAIL: %s at %s:%d\n", msg, __FILE__, __LINE__); \
+      exit(1);                                                         \
+    }                                                                  \
+  } while (0)
 
 static void test_init_clear(void) {
   s21_mpf_t x;
@@ -135,7 +136,9 @@ static void test_small_prec(void) {
   s21_mpf_set_ui(&expected, 2);
   ASSERT(s21_mpf_cmp(&z, &expected) == 0, "3 - 1 = 2 при prec=2");
 
-  s21_mpf_clear(&x); s21_mpf_clear(&y); s21_mpf_clear(&z);
+  s21_mpf_clear(&x);
+  s21_mpf_clear(&y);
+  s21_mpf_clear(&z);
   s21_mpf_clear(&expected);
 
   /* prec = 3 */
@@ -150,7 +153,9 @@ static void test_small_prec(void) {
   s21_mpf_set_ui(&expected, 7);
   ASSERT(s21_mpf_cmp(&z, &expected) == 0, "5 + 2 = 7 при prec=3");
 
-  s21_mpf_clear(&x); s21_mpf_clear(&y); s21_mpf_clear(&z);
+  s21_mpf_clear(&x);
+  s21_mpf_clear(&y);
+  s21_mpf_clear(&z);
   s21_mpf_clear(&expected);
 
   /* prec = 5 */
@@ -165,7 +170,9 @@ static void test_small_prec(void) {
   s21_mpf_set_ui(&expected, 31);
   ASSERT(s21_mpf_cmp(&z, &expected) == 0, "15 + 16 = 31 при prec=5");
 
-  s21_mpf_clear(&x); s21_mpf_clear(&y); s21_mpf_clear(&z);
+  s21_mpf_clear(&x);
+  s21_mpf_clear(&y);
+  s21_mpf_clear(&z);
   s21_mpf_clear(&expected);
 
   /* prec = 8 */
@@ -180,7 +187,9 @@ static void test_small_prec(void) {
   s21_mpf_set_ui(&expected, 73);
   ASSERT(s21_mpf_cmp(&z, &expected) == 0, "100 - 27 = 73 при prec=8");
 
-  s21_mpf_clear(&x); s21_mpf_clear(&y); s21_mpf_clear(&z);
+  s21_mpf_clear(&x);
+  s21_mpf_clear(&y);
+  s21_mpf_clear(&z);
   s21_mpf_clear(&expected);
 
   printf("[ok] малые precisions (2, 3, 5, 8)\n");
@@ -282,8 +291,7 @@ static void test_cmp_mixed_prec(void) {
 
   ASSERT(s21_mpf_cmp_abs(&a256, &b64) > 0,
          "1 + 2^-100 (256) > 1 (64) — double-приближение не видит разницы");
-  ASSERT(s21_mpf_cmp_abs(&b64, &a256) < 0,
-         "1 (64) < 1 + 2^-100 (256)");
+  ASSERT(s21_mpf_cmp_abs(&b64, &a256) < 0, "1 (64) < 1 + 2^-100 (256)");
 
   s21_mpf_clear(&a256);
   s21_mpf_clear(&b64);
@@ -457,7 +465,9 @@ static void test_nonmult32_prec(void) {
   s21_mpf_set_ui(&expected, 15);
   ASSERT(s21_mpf_cmp(&c, &expected) == 0, "3 * 5 = 15 при prec=33");
 
-  s21_mpf_clear(&a); s21_mpf_clear(&b); s21_mpf_clear(&c);
+  s21_mpf_clear(&a);
+  s21_mpf_clear(&b);
+  s21_mpf_clear(&c);
   s21_mpf_clear(&expected);
 
   /* prec = 100 */
@@ -470,10 +480,11 @@ static void test_nonmult32_prec(void) {
   s21_mpf_set_ui(&b, 5678);
   s21_mpf_mul(&c, &a, &b);
   s21_mpf_set_ui(&expected, 7006652);
-  ASSERT(s21_mpf_cmp(&c, &expected) == 0,
-         "1234 * 5678 = 7006652 при prec=100");
+  ASSERT(s21_mpf_cmp(&c, &expected) == 0, "1234 * 5678 = 7006652 при prec=100");
 
-  s21_mpf_clear(&a); s21_mpf_clear(&b); s21_mpf_clear(&c);
+  s21_mpf_clear(&a);
+  s21_mpf_clear(&b);
+  s21_mpf_clear(&c);
   s21_mpf_clear(&expected);
 
   /* prec = 130 */
@@ -486,10 +497,11 @@ static void test_nonmult32_prec(void) {
   s21_mpf_set_ui(&b, 1000000);
   s21_mpf_mul(&c, &a, &b);
   s21_mpf_set_ui(&expected, 1000000000000UL);
-  ASSERT(s21_mpf_cmp(&c, &expected) == 0,
-         "1e6 * 1e6 = 1e12 при prec=130");
+  ASSERT(s21_mpf_cmp(&c, &expected) == 0, "1e6 * 1e6 = 1e12 при prec=130");
 
-  s21_mpf_clear(&a); s21_mpf_clear(&b); s21_mpf_clear(&c);
+  s21_mpf_clear(&a);
+  s21_mpf_clear(&b);
+  s21_mpf_clear(&c);
   s21_mpf_clear(&expected);
 
   printf("[ok] prec, не кратные 32 (33, 100, 130)\n");
@@ -1201,10 +1213,8 @@ static void test_set_round(void) {
          "RNDN(1 + 3·2⁻⁶⁴) = 1 + 2⁻⁶² (ties-to-even)");
   ASSERT(s21_mpf_cmp(&rndz, &lo63) == 0,
          "RNDZ(1 + 3·2⁻⁶⁴) = 1 + 2⁻⁶³ (truncate)");
-  ASSERT(s21_mpf_cmp(&rndu, &lo62) == 0,
-         "RNDU(1 + 3·2⁻⁶⁴) = 1 + 2⁻⁶² (up)");
-  ASSERT(s21_mpf_cmp(&rndd, &lo63) == 0,
-         "RNDD(1 + 3·2⁻⁶⁴) = 1 + 2⁻⁶³ (down)");
+  ASSERT(s21_mpf_cmp(&rndu, &lo62) == 0, "RNDU(1 + 3·2⁻⁶⁴) = 1 + 2⁻⁶² (up)");
+  ASSERT(s21_mpf_cmp(&rndd, &lo63) == 0, "RNDD(1 + 3·2⁻⁶⁴) = 1 + 2⁻⁶³ (down)");
 
   /* Расширение точности — всегда точное. */
   s21_mpf_t widened;

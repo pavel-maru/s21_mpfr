@@ -14,7 +14,7 @@ static int s21_mpf_cmp_mant(const s21_mpf_t *x, const s21_mpf_t *y) {
    Биты младше (n - v->prec) равны нулю; остальные совпадают
    с мантиссой v. */
 static int s21_mpf_mant_bit_padded(const s21_mpf_t *v, uint32_t pos,
-                                    uint32_t n) {
+                                   uint32_t n) {
   uint32_t shift = n - v->prec;
   if (pos < shift) return 0;
   uint32_t idx = pos - shift;
