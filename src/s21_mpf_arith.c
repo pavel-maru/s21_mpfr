@@ -82,9 +82,7 @@ void s21_mpf_add_raw(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
 }
 
 void s21_mpf_sub_raw(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
-  /* Раньше функция дублировала вычитание и жёстко ставила sign = 0 —
-     баг для операндов с разными знаками. Теперь просто делегируем
-     сложению через отрицание: x - y = x + (-y). */
+  /* x - y = x + (-y). Устраняет дублирование ветки разных знаков. */
   s21_mpf_t neg_y;
   s21_mpf_init2(&neg_y, y->prec);
   s21_mpf_neg_raw(&neg_y, y);
@@ -306,107 +304,93 @@ int s21_mpf_mul(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
 }
 
 /* ============================================================
-   Деление: raw + публичная + div_small
+   Деление: длинное деление побитово
    ============================================================ */
 
-int s21_mpf_div_raw(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
-  if (x->kind == S21_MPF_NAN || y->kind == S21_MPF_NAN) {
-    s21_mpf_set_nan(res);
-    return 0;
+/* rem <<= 1 (len лимбов, перенос между лимбами внутри len). */
+static void rem_shift_left_one(uint64_t *rem, size_t len) {
+  uint64_t carry = 0;
+  for (size_t w = 0; w < len; w++) {
+    uint64_t nc = rem[w] >> 63;
+    rem[w] = (rem[w] << 1) | carry;
+    carry = nc;
   }
-  if (x->kind == S21_MPF_INF && y->kind == S21_MPF_INF) {
-    s21_mpf_set_nan(res);
-    return 0;
-  }
-  if (x->kind == S21_MPF_INF) {
-    s21_mpf_set_inf(res, x->sign ^ y->sign);
-    return 0;
-  }
-  if (y->kind == S21_MPF_INF) {
-    s21_mpf_set_zero(res, x->sign ^ y->sign);
-    return 0;
-  }
-  if (y->kind == S21_MPF_ZERO) {
-    if (x->kind == S21_MPF_ZERO)
-      s21_mpf_set_nan(res);
-    else
-      s21_mpf_set_inf(res, x->sign ^ y->sign);
-    return 0;
-  }
-  if (x->kind == S21_MPF_ZERO) {
-    s21_mpf_set_zero(res, x->sign ^ y->sign);
-    return 0;
-  }
+}
 
+/* rem >= y? У rem на один лимб больше, чем у y; старший лимб rem —
+   перенос из предыдущего сдвига. */
+static int rem_ge_y(const uint64_t *rem, size_t y_len, const uint64_t *y) {
+  if (rem[y_len] != 0) return 1;
+  for (int w = (int)y_len - 1; w >= 0; w--) {
+    if (rem[w] < y[w]) return 0;
+    if (rem[w] > y[w]) return 1;
+  }
+  return 1;
+}
+
+/* rem -= y (y_len лимбов; borrow выходит в rem[y_len]). */
+static void rem_sub_y(uint64_t *rem, size_t y_len, const uint64_t *y) {
+  uint64_t borrow = 0;
+  for (size_t w = 0; w < y_len; w++) {
+    uint64_t diff;
+    uint64_t b1 = __builtin_sub_overflow(rem[w], y[w], &diff);
+    uint64_t b2 = __builtin_sub_overflow(diff, borrow, &diff);
+    rem[w] = diff;
+    borrow = b1 | b2;
+  }
+  rem[y_len] -= borrow;
+}
+
+/* Установлен ли в q бит prec? Если да, частное >= 2^prec и нужна
+   нормализация сдвигом на 1 бит вправо с инкрементом экспоненты. */
+static int quotient_has_overflow(const uint64_t *q, size_t q_len,
+                                 uint32_t prec) {
+  uint32_t pw = prec / 64;
+  uint32_t pb = prec % 64;
+  if (pw >= q_len) return 0;
+  return (int)((q[pw] >> pb) & 1ULL);
+}
+
+/* q >>= 1 (перенос между лимбами внутри len). */
+static void quotient_shift_right_one(uint64_t *q, size_t len) {
+  for (size_t w = 0; w < len; w++) {
+    uint64_t high_bit = (w + 1 < len) ? (q[w + 1] << 63) : 0;
+    q[w] = (q[w] >> 1) | high_bit;
+  }
+}
+
+int s21_mpf_div_raw(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
+  /* Операнды NORMAL — спецзначения обработаны в div_special. */
   uint32_t prec = res->prec;
   size_t count = s21_mpf_limbs_for_prec(prec);
+  size_t rem_len = count + 1;
 
-  uint64_t *rem = calloc(count + 1, sizeof(uint64_t));
-  uint64_t *q = calloc(count + 1, sizeof(uint64_t));
+  uint64_t *rem = calloc(rem_len, sizeof(uint64_t));
+  uint64_t *q = calloc(rem_len, sizeof(uint64_t));
 
+  /* Длинное деление: dividend = x.mant · 2^prec (2·prec бит, MSB-первым),
+     divisor = y.mant (prec бит). Частное — не более prec+1 бит. */
   for (int i = 2 * (int)prec - 1; i >= 0; i--) {
-    uint64_t carry = 0;
-    for (size_t w = 0; w < count + 1; w++) {
-      uint64_t nc = rem[w] >> 63;
-      rem[w] = (rem[w] << 1) | carry;
-      carry = nc;
-    }
+    rem_shift_left_one(rem, rem_len);
     if (i >= (int)prec) {
       int src = i - (int)prec;
-      uint64_t b = (x->limbs[src / 64] >> (src % 64)) & 1ULL;
-      rem[0] |= b;
+      rem[0] |= (x->limbs[src / 64] >> (src % 64)) & 1ULL;
     }
-
-    int geq = (rem[count] != 0);
-    if (!geq) {
-      geq = 1;
-      for (int w = (int)count - 1; w >= 0; w--) {
-        if (rem[w] < y->limbs[w]) {
-          geq = 0;
-          break;
-        }
-        if (rem[w] > y->limbs[w]) {
-          geq = 1;
-          break;
-        }
-      }
-    }
-
-    if (geq) {
-      uint64_t borrow = 0;
-      for (size_t w = 0; w < count; w++) {
-        uint64_t diff;
-        uint64_t b1 = __builtin_sub_overflow(rem[w], y->limbs[w], &diff);
-        uint64_t b2 = __builtin_sub_overflow(diff, borrow, &diff);
-        rem[w] = diff;
-        borrow = b1 | b2;
-      }
-      rem[count] -= borrow;
-      q[i / 64] |= (1ULL << (i % 64));
+    if (rem_ge_y(rem, count, y->limbs)) {
+      rem_sub_y(rem, count, y->limbs);
+      q[i / 64] |= 1ULL << (i % 64);
     }
   }
   free(rem);
 
-  uint32_t pw = prec / 64;
-  uint32_t pb = prec % 64;
-  int overflow = 0;
-  if (pw < count + 1) {
-    if ((q[pw] >> pb) & 1ULL) overflow = 1;
-  }
-  if (overflow) {
-    for (size_t w = 0; w < count + 1; w++) {
-      uint64_t high_bit = (w + 1 < count + 1) ? (q[w + 1] << 63) : 0;
-      q[w] = (q[w] >> 1) | high_bit;
-    }
-  }
+  int overflow = quotient_has_overflow(q, rem_len, prec);
+  if (overflow) quotient_shift_right_one(q, rem_len);
 
   memcpy(res->limbs, q, count * sizeof(uint64_t));
   free(q);
 
   uint32_t mask_bits = prec % 64;
-  if (mask_bits != 0) {
-    res->limbs[count - 1] &= (1ULL << mask_bits) - 1;
-  }
+  if (mask_bits != 0) res->limbs[count - 1] &= (1ULL << mask_bits) - 1;
 
   res->exp = x->exp - y->exp + (overflow ? 1 : 0);
   res->sign = x->sign ^ y->sign;
@@ -415,15 +399,34 @@ int s21_mpf_div_raw(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
   return 0;
 }
 
+/* Возвращает 1, если результат уже определён (спецслучай), 0 — надо считать.
+   Покрывает все пары x, y, где хотя бы один не NORMAL. */
 static int div_special(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
   if (x->kind == S21_MPF_NAN || y->kind == S21_MPF_NAN) {
     s21_mpf_set_nan(res);
     return 1;
   }
-  /* Все остальные спецслучаи (inf/inf, inf/x, x/inf, x/0, 0/0)
-     уже реализованы в div_raw и не требуют дублирования здесь. */
-  if (x->kind != S21_MPF_NORMAL || y->kind != S21_MPF_NORMAL) {
-    s21_mpf_div_raw(res, x, y);
+  if (x->kind == S21_MPF_INF && y->kind == S21_MPF_INF) {
+    s21_mpf_set_nan(res);
+    return 1;
+  }
+  if (x->kind == S21_MPF_INF) {
+    s21_mpf_set_inf(res, x->sign ^ y->sign);
+    return 1;
+  }
+  if (y->kind == S21_MPF_INF) {
+    s21_mpf_set_zero(res, x->sign ^ y->sign);
+    return 1;
+  }
+  if (y->kind == S21_MPF_ZERO) {
+    if (x->kind == S21_MPF_ZERO)
+      s21_mpf_set_nan(res);
+    else
+      s21_mpf_set_inf(res, x->sign ^ y->sign);
+    return 1;
+  }
+  if (x->kind == S21_MPF_ZERO) {
+    s21_mpf_set_zero(res, x->sign ^ y->sign);
     return 1;
   }
   return 0;
@@ -474,7 +477,6 @@ void s21_mpf_neg(s21_mpf_t *res, const s21_mpf_t *x) {
 void s21_mpf_abs(s21_mpf_t *res, const s21_mpf_t *x) {
   if (res == NULL || x == NULL) return;
   s21_mpf_set(res, x);
-  /* abs(-0) = +0, abs(-inf) = +inf, abs(-x) = +x. Сбрасываем знак для
-     всех kind, кроме NaN (у NaN sign не имеет смысла и равен 0). */
+  /* abs(-0) = +0, abs(-inf) = +inf, abs(-x) = +x. NaN остаётся NaN. */
   res->sign = 0;
 }
