@@ -160,7 +160,62 @@ static void s21_mpf_atan_series(s21_mpf_t *out, const s21_mpf_t *z, uint32_t wp,
 
 /* ============================================================
    Натуральный логарифм
+
+   log(a) = log(y) + k·ln2, где a = y · 2^k, y ∈ [1, 2).
+   log(y) = 2 · atanh((y-1)/(y+1)),
+   ln2    = 2 · atanh(1/3).
    ============================================================ */
+
+/* Разложение a = y · 2^k с приведением y к [1, 2). */
+static void log_reduce_to_unit(s21_mpf_t *y, int64_t *k, const s21_mpf_t *a) {
+  *k = a->exp - 1;
+  s21_mpf_set(y, a);
+  y->exp = 1;
+  s21_mpf_normalize(y);
+}
+
+/* log(y) = 2 · atanh((y-1)/(y+1)) для y ∈ [1, 2). */
+static void log_unit_interval(s21_mpf_t *log_y, const s21_mpf_t *y,
+                              uint32_t wp) {
+  s21_mpf_t one, num, den, z;
+  s21_mpf_init2(&one, wp);
+  s21_mpf_init2(&num, wp);
+  s21_mpf_init2(&den, wp);
+  s21_mpf_init2(&z, wp);
+
+  s21_mpf_set_ui(&one, 1);
+  s21_mpf_sub_raw(&num, y, &one);
+  s21_mpf_add_raw(&den, y, &one);
+  s21_mpf_div_raw(&z, &num, &den);
+
+  s21_mpf_atan_series(log_y, &z, wp, 0);
+  log_y->exp += 1;
+  s21_mpf_normalize(log_y);
+
+  s21_mpf_clear(&one);
+  s21_mpf_clear(&num);
+  s21_mpf_clear(&den);
+  s21_mpf_clear(&z);
+}
+
+/* ln2 = 2 · atanh(1/3). */
+static void log_compute_ln2(s21_mpf_t *ln2, uint32_t wp) {
+  s21_mpf_t one, three, z;
+  s21_mpf_init2(&one, wp);
+  s21_mpf_init2(&three, wp);
+  s21_mpf_init2(&z, wp);
+
+  s21_mpf_set_ui(&one, 1);
+  s21_mpf_set_ui(&three, 3);
+  s21_mpf_div_raw(&z, &one, &three);
+  s21_mpf_atan_series(ln2, &z, wp, 0);
+  ln2->exp += 1;
+  s21_mpf_normalize(ln2);
+
+  s21_mpf_clear(&one);
+  s21_mpf_clear(&three);
+  s21_mpf_clear(&z);
+}
 
 int s21_mpf_log(s21_mpf_t *res, const s21_mpf_t *x) {
   if (res == NULL || x == NULL) return -1;
@@ -182,70 +237,38 @@ int s21_mpf_log(s21_mpf_t *res, const s21_mpf_t *x) {
   }
 
   uint32_t wp = res->prec + 64;
-  s21_mpf_t a, y, z, num, den, log_y, ln2, k_ln2, result, one, three, kk;
-  s21_mpf_init2(&a, wp);
+
+  int64_t k;
+  s21_mpf_t y, log_y;
   s21_mpf_init2(&y, wp);
-  s21_mpf_init2(&z, wp);
-  s21_mpf_init2(&num, wp);
-  s21_mpf_init2(&den, wp);
   s21_mpf_init2(&log_y, wp);
-  s21_mpf_init2(&ln2, wp);
-  s21_mpf_init2(&k_ln2, wp);
-  s21_mpf_init2(&result, wp);
-  s21_mpf_init2(&one, wp);
-  s21_mpf_init2(&three, wp);
-  s21_mpf_init2(&kk, wp);
 
-  s21_mpf_set(&a, x);
-  s21_mpf_set_ui(&one, 1);
+  log_reduce_to_unit(&y, &k, x);
+  log_unit_interval(&log_y, &y, wp);
 
-  if (s21_mpf_cmp(&a, &one) == 0) {
-    s21_mpf_set_zero(res, 0);
+  if (k == 0) {
+    s21_mpf_set(res, &log_y);
   } else {
-    int64_t k = a.exp - 1;
-    s21_mpf_set(&y, &a);
-    y.exp = 1;
-    s21_mpf_normalize(&y);
+    s21_mpf_t ln2, kk, k_ln2, result;
+    s21_mpf_init2(&ln2, wp);
+    s21_mpf_init2(&kk, wp);
+    s21_mpf_init2(&k_ln2, wp);
+    s21_mpf_init2(&result, wp);
 
-    s21_mpf_sub_raw(&num, &y, &one);
-    s21_mpf_add_raw(&den, &y, &one);
-    s21_mpf_div_raw(&z, &num, &den);
+    log_compute_ln2(&ln2, wp);
+    s21_mpf_set_si(&kk, (long)k);
+    s21_mpf_mul_raw(&k_ln2, &kk, &ln2);
+    s21_mpf_add_raw(&result, &log_y, &k_ln2);
+    s21_mpf_set(res, &result);
 
-    /* log(y) = 2 · atanh((y-1)/(y+1)) */
-    s21_mpf_atan_series(&log_y, &z, wp, 0);
-    log_y.exp += 1;
-    s21_mpf_normalize(&log_y);
-
-    if (k == 0) {
-      s21_mpf_set(res, &log_y);
-    } else {
-      /* ln2 = 2 · atanh(1/3) */
-      s21_mpf_set_ui(&three, 3);
-      s21_mpf_div_raw(&z, &one, &three);
-      s21_mpf_atan_series(&ln2, &z, wp, 0);
-      ln2.exp += 1;
-      s21_mpf_normalize(&ln2);
-
-      s21_mpf_set_si(&kk, (long)k);
-      s21_mpf_mul_raw(&k_ln2, &kk, &ln2);
-
-      s21_mpf_add_raw(&result, &log_y, &k_ln2);
-      s21_mpf_set(res, &result);
-    }
+    s21_mpf_clear(&ln2);
+    s21_mpf_clear(&kk);
+    s21_mpf_clear(&k_ln2);
+    s21_mpf_clear(&result);
   }
 
-  s21_mpf_clear(&a);
   s21_mpf_clear(&y);
-  s21_mpf_clear(&z);
-  s21_mpf_clear(&num);
-  s21_mpf_clear(&den);
   s21_mpf_clear(&log_y);
-  s21_mpf_clear(&ln2);
-  s21_mpf_clear(&k_ln2);
-  s21_mpf_clear(&result);
-  s21_mpf_clear(&one);
-  s21_mpf_clear(&three);
-  s21_mpf_clear(&kk);
   return 0;
 }
 
