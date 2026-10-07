@@ -60,16 +60,19 @@ int s21_mpf_cmp_abs(const s21_mpf_t *x, const s21_mpf_t *y) {
 int s21_mpf_cmp(const s21_mpf_t *x, const s21_mpf_t *y) {
   if (x->kind == S21_MPF_NAN || y->kind == S21_MPF_NAN) return 0;
 
-  int xs = x->kind == S21_MPF_ZERO ? 0 : (x->sign ? -1 : 1);
-  int ys = y->kind == S21_MPF_ZERO ? 0 : (y->sign ? -1 : 1);
+  /* Нули: 0 == 0; 0 > любое отрицательное; 0 < любое положительное.
+     Раньше эта ветка отсутствовала, и cmp(0, -5) возвращал -1. */
+  int xzero = (x->kind == S21_MPF_ZERO);
+  int yzero = (y->kind == S21_MPF_ZERO);
+  if (xzero && yzero) return 0;
+  if (xzero) return y->sign ? 1 : -1;
+  if (yzero) return x->sign ? -1 : 1;
 
-  if (x->kind != S21_MPF_ZERO && y->kind != S21_MPF_ZERO && xs != ys) {
-    return xs < ys ? -1 : 1;
-  }
+  /* Оба ненулевые, не NaN — знак решает. */
+  if (x->sign != y->sign) return x->sign ? -1 : 1;
 
   int cmp_abs = s21_mpf_cmp_abs(x, y);
-  if (xs < 0) return -cmp_abs;
-  return cmp_abs;
+  return x->sign ? -cmp_abs : cmp_abs;
 }
 
 int s21_mpf_equal(const s21_mpf_t *x, const s21_mpf_t *y) {

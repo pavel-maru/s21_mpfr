@@ -72,13 +72,12 @@ int s21_mpf_is_normal(const s21_mpf_t *x);
 int s21_mpf_sign(const s21_mpf_t *x);
 uint32_t s21_mpf_get_prec(const s21_mpf_t *x);
 
-/* Низкоуровневые операции над битами мантиссы */
+/* Низкоуровневые операции над битами мантиссы.
+   Сдвиги объявлены во внутреннем заголовке s21_mpf_internal.h. */
 int s21_mpf_get_bit(const s21_mpf_t *x, uint32_t pos);
 int s21_mpf_msb(const s21_mpf_t *x);
 int s21_mpf_lsb(const s21_mpf_t *x);
 void s21_mpf_set_bit(s21_mpf_t *x, uint32_t pos, int value);
-void s21_mpf_shift_left_into(uint64_t *dst, const uint64_t *src, size_t count,
-                             int shift);
 
 /* ============== Сравнение ============== */
 

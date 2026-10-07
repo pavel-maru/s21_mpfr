@@ -3,6 +3,7 @@
 #include <stdlib.h>
 
 #include "s21_mpf.h"
+#include "s21_mpf_internal.h"
 
 #define ASSERT(cond, msg)                                              \
   do {                                                                 \
@@ -193,6 +194,31 @@ static void test_small_prec(void) {
   s21_mpf_clear(&expected);
 
   printf("[ok] малые precisions (2, 3, 5, 8)\n");
+}
+
+/* Регрессия: при сужении 66 → 2 бита (word_shift = 1, dst_count = 1,
+   src_count = 2) shift_right_into раньше сравнивал src_idx с dst_count
+   вместо src_count и терял старший лимб. Именно поэтому падал
+   "1 + 2 = 3 при prec=2". */
+static void test_round_narrow_across_limb_boundary(void) {
+  s21_mpf_t a, b, c, e;
+  s21_mpf_init2(&a, 2);
+  s21_mpf_init2(&b, 2);
+  s21_mpf_init2(&c, 2);
+  s21_mpf_init2(&e, 2);
+
+  s21_mpf_set_ui(&a, 1);
+  s21_mpf_set_ui(&b, 2);
+  s21_mpf_add(&c, &a, &b);
+  s21_mpf_set_ui(&e, 3);
+  ASSERT(s21_mpf_cmp(&c, &e) == 0,
+         "1 + 2 = 3 при prec=2 (regression, limb boundary)");
+
+  s21_mpf_clear(&a);
+  s21_mpf_clear(&b);
+  s21_mpf_clear(&c);
+  s21_mpf_clear(&e);
+  printf("[ok] round narrow across limb boundary\n");
 }
 
 static void test_cmp(void) {
@@ -669,26 +695,34 @@ static void test_bit_utils(void) {
   {
     uint64_t src[2] = {0x1ULL, 0};
     uint64_t dst[2] = {0};
-    s21_mpf_shift_left_into(dst, src, 2, 1);
+    s21_mpf_shift_left_into(dst, 2, src, 2, 1);
     ASSERT(dst[0] == 0x2ULL, "shift left by 1: low");
     ASSERT(dst[1] == 0, "shift left by 1: high");
 
     uint64_t src2[2] = {0x8000000000000000ULL, 0};
     uint64_t dst2[2] = {0};
-    s21_mpf_shift_left_into(dst2, src2, 2, 1);
+    s21_mpf_shift_left_into(dst2, 2, src2, 2, 1);
     ASSERT(dst2[0] == 0, "shift through boundary: low zero");
     ASSERT(dst2[1] == 0x1ULL, "shift through boundary: high 1");
 
     uint64_t src3[2] = {0xDEADBEEFULL, 0};
     uint64_t dst3[2] = {0};
-    s21_mpf_shift_left_into(dst3, src3, 2, 64);
+    s21_mpf_shift_left_into(dst3, 2, src3, 2, 64);
     ASSERT(dst3[0] == 0, "shift by 64: low zero");
     ASSERT(dst3[1] == 0xDEADBEEFULL, "shift by 64: high moved");
 
     uint64_t src4[2] = {0xCAFEULL, 0xF00DULL};
     uint64_t dst4[2] = {0};
-    s21_mpf_shift_left_into(dst4, src4, 2, 0);
+    s21_mpf_shift_left_into(dst4, 2, src4, 2, 0);
     ASSERT(dst4[0] == 0xCAFEULL && dst4[1] == 0xF00DULL, "shift by 0 copy");
+
+    /* Регрессия на разные размеры dst/src:
+       src_count = 2, dst_count = 1, сдвиг = 64 — старший лимб должен
+       переехать в младший, не потеряться. */
+    uint64_t src5[2] = {0, 0x5ULL};
+    uint64_t dst5[1] = {0};
+    s21_mpf_shift_right_into(dst5, 1, src5, 2, 64);
+    ASSERT(dst5[0] == 0x5ULL, "right shift 64 across limb boundary");
   }
 
   printf("[ok] bit utilities\n");
@@ -1245,6 +1279,7 @@ int main(void) {
   test_special();
   test_precision();
   test_small_prec();
+  test_round_narrow_across_limb_boundary();
   test_cmp();
   test_cmp_mixed_prec();
   test_add_sub();
