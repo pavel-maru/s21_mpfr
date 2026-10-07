@@ -384,6 +384,35 @@ static const s21_mpf_t *mpf_get_pi(const s21_mpf_t *pi_in, s21_mpf_t *pi_local,
 }
 
 /* ============================================================
+   Reduction по модулю 2π: r = a - round(a / 2π) · 2π.
+   Сводит a к (-π, π].  pi должно быть на точности не меньше wp.
+   ============================================================ */
+
+static void reduce_2pi(s21_mpf_t *r, const s21_mpf_t *a,
+                       const s21_mpf_t *pi, uint32_t wp) {
+  s21_mpf_t two_pi, q, q_r, tmp;
+  s21_mpf_init2(&two_pi, wp);
+  s21_mpf_init2(&q, wp);
+  s21_mpf_init2(&q_r, wp);
+  s21_mpf_init2(&tmp, wp);
+
+  s21_mpf_set(&two_pi, pi);
+  two_pi.exp += 1;
+  s21_mpf_normalize(&two_pi);
+
+  s21_mpf_div_raw(&q, a, &two_pi);
+  s21_mpf_round_nearest(&q_r, &q);
+  s21_mpf_mul_raw(&tmp, &q_r, &two_pi);
+  s21_mpf_neg_raw(&tmp, &tmp);
+  s21_mpf_add_raw(r, a, &tmp);
+
+  s21_mpf_clear(&two_pi);
+  s21_mpf_clear(&q);
+  s21_mpf_clear(&q_r);
+  s21_mpf_clear(&tmp);
+}
+
+/* ============================================================
    sin — публичный + _impl
    ============================================================ */
 
@@ -394,27 +423,15 @@ void s21_mpf_sin_impl(s21_mpf_t *res, const s21_mpf_t *x,
   int pi_owned = 0;
   const s21_mpf_t *pi = mpf_get_pi(pi_in, &pi_local, wp, &pi_owned);
 
-  s21_mpf_t a, two_pi, q, q_r, r, term, sum, x2, tmp;
+  s21_mpf_t a, r, term, sum, x2;
   s21_mpf_init2(&a, wp);
-  s21_mpf_init2(&two_pi, wp);
-  s21_mpf_init2(&q, wp);
-  s21_mpf_init2(&q_r, wp);
   s21_mpf_init2(&r, wp);
   s21_mpf_init2(&term, wp);
   s21_mpf_init2(&sum, wp);
   s21_mpf_init2(&x2, wp);
-  s21_mpf_init2(&tmp, wp);
 
   s21_mpf_set(&a, x);
-  s21_mpf_set(&two_pi, pi);
-  two_pi.exp += 1;
-  s21_mpf_normalize(&two_pi);
-
-  s21_mpf_div_raw(&q, &a, &two_pi);
-  s21_mpf_round_nearest(&q_r, &q);
-  s21_mpf_mul_raw(&tmp, &q_r, &two_pi);
-  s21_mpf_neg_raw(&tmp, &tmp);
-  s21_mpf_add_raw(&r, &a, &tmp);
+  reduce_2pi(&r, &a, pi, wp);
 
   s21_mpf_set(&term, &r);
   s21_mpf_set(&sum, &r);
@@ -434,14 +451,10 @@ void s21_mpf_sin_impl(s21_mpf_t *res, const s21_mpf_t *x,
   s21_mpf_set(res, &sum);
 
   s21_mpf_clear(&a);
-  s21_mpf_clear(&two_pi);
-  s21_mpf_clear(&q);
-  s21_mpf_clear(&q_r);
   s21_mpf_clear(&r);
   s21_mpf_clear(&term);
   s21_mpf_clear(&sum);
   s21_mpf_clear(&x2);
-  s21_mpf_clear(&tmp);
 
   if (pi_owned) s21_mpf_clear(&pi_local);
 }
@@ -471,28 +484,16 @@ void s21_mpf_cos_impl(s21_mpf_t *res, const s21_mpf_t *x,
   int pi_owned = 0;
   const s21_mpf_t *pi = mpf_get_pi(pi_in, &pi_local, wp, &pi_owned);
 
-  s21_mpf_t a, two_pi, q, q_r, r, term, sum, x2, tmp, one;
+  s21_mpf_t a, r, term, sum, x2, one;
   s21_mpf_init2(&a, wp);
-  s21_mpf_init2(&two_pi, wp);
-  s21_mpf_init2(&q, wp);
-  s21_mpf_init2(&q_r, wp);
   s21_mpf_init2(&r, wp);
   s21_mpf_init2(&term, wp);
   s21_mpf_init2(&sum, wp);
   s21_mpf_init2(&x2, wp);
-  s21_mpf_init2(&tmp, wp);
   s21_mpf_init2(&one, wp);
 
   s21_mpf_set(&a, x);
-  s21_mpf_set(&two_pi, pi);
-  two_pi.exp += 1;
-  s21_mpf_normalize(&two_pi);
-
-  s21_mpf_div_raw(&q, &a, &two_pi);
-  s21_mpf_round_nearest(&q_r, &q);
-  s21_mpf_mul_raw(&tmp, &q_r, &two_pi);
-  s21_mpf_neg_raw(&tmp, &tmp);
-  s21_mpf_add_raw(&r, &a, &tmp);
+  reduce_2pi(&r, &a, pi, wp);
 
   s21_mpf_set_ui(&one, 1);
   s21_mpf_set(&term, &one);
@@ -513,14 +514,10 @@ void s21_mpf_cos_impl(s21_mpf_t *res, const s21_mpf_t *x,
   s21_mpf_set(res, &sum);
 
   s21_mpf_clear(&a);
-  s21_mpf_clear(&two_pi);
-  s21_mpf_clear(&q);
-  s21_mpf_clear(&q_r);
   s21_mpf_clear(&r);
   s21_mpf_clear(&term);
   s21_mpf_clear(&sum);
   s21_mpf_clear(&x2);
-  s21_mpf_clear(&tmp);
   s21_mpf_clear(&one);
 
   if (pi_owned) s21_mpf_clear(&pi_local);
