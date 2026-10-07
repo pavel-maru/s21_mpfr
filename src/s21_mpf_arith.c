@@ -190,25 +190,8 @@ static void s21_mpf_mul_mant(uint64_t *prod, const uint64_t *a,
   }
 }
 
+/* Операнды NORMAL — спецзначения обрабатываются в mul_special. */
 int s21_mpf_mul_raw(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
-  if (x->kind == S21_MPF_NAN || y->kind == S21_MPF_NAN) {
-    s21_mpf_set_nan(res);
-    return 0;
-  }
-  if (x->kind == S21_MPF_INF || y->kind == S21_MPF_INF) {
-    int other_zero = (x->kind == S21_MPF_INF && y->kind == S21_MPF_ZERO) ||
-                     (y->kind == S21_MPF_INF && x->kind == S21_MPF_ZERO);
-    if (other_zero)
-      s21_mpf_set_nan(res);
-    else
-      s21_mpf_set_inf(res, x->sign ^ y->sign);
-    return 0;
-  }
-  if (x->kind == S21_MPF_ZERO || y->kind == S21_MPF_ZERO) {
-    s21_mpf_set_zero(res, x->sign ^ y->sign);
-    return 0;
-  }
-
   size_t count = s21_mpf_limbs_for_prec(res->prec);
   uint64_t *prod = malloc(2 * count * sizeof(uint64_t));
   s21_mpf_mul_mant(prod, x->limbs, y->limbs, count);
@@ -359,8 +342,8 @@ static void quotient_shift_right_one(uint64_t *q, size_t len) {
   }
 }
 
+/* Операнды NORMAL — спецзначения обрабатываются в div_special. */
 int s21_mpf_div_raw(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
-  /* Операнды NORMAL — спецзначения обработаны в div_special. */
   uint32_t prec = res->prec;
   size_t count = s21_mpf_limbs_for_prec(prec);
   size_t rem_len = count + 1;
