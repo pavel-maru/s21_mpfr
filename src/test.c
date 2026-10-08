@@ -1270,6 +1270,122 @@ static void test_set_round(void) {
   printf("[ok] set_round (RNDN/RNDZ/RNDU/RNDD)\n");
 }
 
+static void test_set_prec(void) {
+  s21_mpf_t x, expected;
+
+  /* 1. Расширение сохраняет значение. */
+  s21_mpf_init2(&x, 32);
+  s21_mpf_init2(&expected, 128);
+  s21_mpf_set_ui(&x, 42);
+  s21_mpf_set_ui(&expected, 42);
+  ASSERT(s21_mpf_set_prec(&x, 128) == 0, "expand: rc");
+  ASSERT(x.prec == 128, "expand: prec");
+  ASSERT(s21_mpf_cmp(&x, &expected) == 0, "expand: value preserved");
+  s21_mpf_clear(&x);
+  s21_mpf_clear(&expected);
+
+  /* 2. Сужение точно (значение представимо). */
+  s21_mpf_init2(&x, 128);
+  s21_mpf_init2(&expected, 32);
+  s21_mpf_set_ui(&x, 7);
+  s21_mpf_set_ui(&expected, 7);
+  ASSERT(s21_mpf_set_prec(&x, 32) == 0, "narrow exact: rc");
+  ASSERT(x.prec == 32, "narrow exact: prec");
+  ASSERT(s21_mpf_cmp(&x, &expected) == 0, "narrow exact: value");
+  s21_mpf_clear(&x);
+  s21_mpf_clear(&expected);
+
+  /* 3. Сужение с округлением: 1 + 2^-5 при prec=128 → prec=4.
+     Ближайшее 4-битное значение — 1.0 (расстояние 1/32),
+     против 1.125 (расстояние 3/32). */
+  s21_mpf_init2(&x, 128);
+  s21_mpf_set_ui(&x, 1);
+  {
+    s21_mpf_t tiny;
+    s21_mpf_init2(&tiny, 128);
+    s21_mpf_set_ui(&tiny, 1);
+    tiny.exp -= 5;
+    s21_mpf_normalize(&tiny);
+    s21_mpf_add(&x, &x, &tiny);
+    s21_mpf_clear(&tiny);
+  }
+  ASSERT(s21_mpf_set_prec(&x, 4) == 0, "narrow round: rc");
+  ASSERT(x.prec == 4, "narrow round: prec");
+  s21_mpf_init2(&expected, 4);
+  s21_mpf_set_ui(&expected, 1);
+  ASSERT(s21_mpf_cmp(&x, &expected) == 0, "narrow round: → 1.0");
+  s21_mpf_clear(&x);
+  s21_mpf_clear(&expected);
+
+  /* 4. Сужение с округлением вверх и переполнением мантиссы:
+     1.111…1₂ → 2.0.  Проверяет, что mpf_add_one корректно
+     обрабатывает случай выхода за границу prec. */
+  s21_mpf_init2(&x, 128);
+  s21_mpf_set_ui(&x, 1);
+  {
+    s21_mpf_t frac, pow;
+    s21_mpf_init2(&frac, 128);
+    s21_mpf_init2(&pow, 128);
+    s21_mpf_set_ui(&pow, 1);
+    /* Складываем 2^-1 + 2^-2 + ... + 2^-2, пока чуть-чуть не дойдём
+       до 2. Проще: построить сумму 2 - 2^-100. */
+    s21_mpf_t two;
+    s21_mpf_init2(&two, 128);
+    s21_mpf_set_ui(&two, 2);
+    s21_mpf_set_ui(&pow, 1);
+    pow.exp -= 100;
+    s21_mpf_normalize(&pow);
+    s21_mpf_sub(&x, &two, &pow); /* x = 2 - 2^-100, чуть меньше 2 */
+    s21_mpf_clear(&frac);
+    s21_mpf_clear(&pow);
+    s21_mpf_clear(&two);
+  }
+  ASSERT(s21_mpf_set_prec(&x, 4) == 0, "narrow to 2.0: rc");
+  ASSERT(x.prec == 4, "narrow to 2.0: prec");
+  s21_mpf_init2(&expected, 4);
+  s21_mpf_set_ui(&expected, 2);
+  ASSERT(s21_mpf_cmp(&x, &expected) == 0, "narrow to 2.0: value");
+  s21_mpf_clear(&x);
+  s21_mpf_clear(&expected);
+
+  /* 5. Same prec — no-op. */
+  s21_mpf_init2(&x, 64);
+  s21_mpf_set_ui(&x, 5);
+  uint64_t saved_exp = (uint64_t)x.exp;
+  ASSERT(s21_mpf_set_prec(&x, 64) == 0, "same: rc");
+  ASSERT(x.prec == 64, "same: prec");
+  ASSERT((uint64_t)x.exp == saved_exp, "same: exp");
+  s21_mpf_clear(&x);
+
+  /* 6. Clamp < 2. */
+  s21_mpf_init2(&x, 32);
+  s21_mpf_set_ui(&x, 1);
+  ASSERT(s21_mpf_set_prec(&x, 0) == 0, "clamp 0: rc");
+  ASSERT(x.prec == 2, "clamp 0: prec == 2");
+  ASSERT(s21_mpf_set_prec(&x, 1) == 0, "clamp 1: rc");
+  ASSERT(x.prec == 2, "clamp 1: prec == 2");
+  s21_mpf_clear(&x);
+
+  /* 7. Спецзначения. */
+  s21_mpf_init2(&x, 32);
+  s21_mpf_set_inf(&x, 1);
+  ASSERT(s21_mpf_set_prec(&x, 128) == 0, "inf: rc");
+  ASSERT(x.prec == 128, "inf: prec");
+  ASSERT(s21_mpf_is_inf(&x) && x.sign == 1, "inf: value");
+  s21_mpf_set_nan(&x);
+  ASSERT(s21_mpf_set_prec(&x, 64) == 0, "nan: rc");
+  ASSERT(s21_mpf_is_nan(&x), "nan: value");
+  s21_mpf_set_zero(&x, 1);
+  ASSERT(s21_mpf_set_prec(&x, 96) == 0, "zero: rc");
+  ASSERT(s21_mpf_is_zero(&x) && x.sign == 1, "zero: value");
+  s21_mpf_clear(&x);
+
+  /* 8. NULL. */
+  ASSERT(s21_mpf_set_prec(NULL, 128) == -1, "NULL");
+
+  printf("[ok] set_prec (in-place, expand/narrow/RNDN, special)\n");
+}
+
 int main(void) {
   printf("=== s21_mpf: базовые тесты ===\n");
   test_init_clear();
@@ -1296,6 +1412,7 @@ int main(void) {
   test_atan();
   test_tan_asin_acos();
   test_set_round();
+  test_set_prec();
   printf("=== Все тесты прошли ===\n");
   return 0;
 }

@@ -30,24 +30,6 @@ void s21_mpf_clear(s21_mpf_t *x) {
   x->kind = S21_MPF_ZERO;
 }
 
-void s21_mpf_set_prec(s21_mpf_t *x, uint32_t prec) {
-  if (prec < 2) prec = 2;
-  if (prec == x->prec) return;
-
-  uint64_t *new_limbs = calloc(s21_mpf_limbs_for_prec(prec), sizeof(uint64_t));
-
-  size_t old_count = s21_mpf_limbs_for_prec(x->prec);
-  size_t new_count = s21_mpf_limbs_for_prec(prec);
-  size_t n = old_count < new_count ? old_count : new_count;
-  memcpy(new_limbs, x->limbs, n * sizeof(uint64_t));
-
-  free(x->limbs);
-  x->limbs = new_limbs;
-  x->prec  = prec;
-  /* NB: семантика set_prec будет отдельно ревизоваться (не сохраняет
-     инвариант MSB@prec-1). Сейчас поведение оставлено как было. */
-}
-
 /* ============================================================
    Нормализация мантиссы
    ============================================================ */
@@ -177,9 +159,9 @@ void s21_mpf_set(s21_mpf_t *dst, const s21_mpf_t *src) {
   s21_mpf_set_round(dst, src, S21_MPF_RNDN);
 }
 
-/* ------------------------------------------------------------
-   Подпрограммы для set_round.
-   ------------------------------------------------------------ */
+/* ============================================================
+   Подпрограммы для управления точностью
+   ============================================================ */
 
 /* Есть ли единичные биты ниже позиции (shift - 1)? */
 static int mpf_sticky_below(const s21_mpf_t *src, int shift) {
@@ -212,7 +194,11 @@ static int mpf_round_up(s21_mpf_rnd_t rnd, int round_bit, int sticky,
   }
 }
 
-/* Прибавить 1 к мантиссе с переносом; при переполнении — сдвиг экспоненты. */
+/* Прибавить 1 к мантиссе. При переполнении prec-битной сетки —
+   нормализовать к 2^(prec-1) и увеличить exp. Два случая:
+     (а) +1 вынеслось за все лимбы — обрабатывается carry-веткой;
+     (б) +1 перешло в бит prec внутри последнего лимба (prec % 64 != 0) —
+         обрабатывается вторым блоком. */
 static void mpf_add_one(uint64_t *limbs, size_t count, uint32_t prec,
                         int64_t *exp) {
   uint64_t carry = 1;
@@ -220,10 +206,24 @@ static void mpf_add_one(uint64_t *limbs, size_t count, uint32_t prec,
     limbs[i]++;
     if (limbs[i] != 0) carry = 0;
   }
+
   if (carry) {
+    /* Случай (а). */
     memset(limbs, 0, count * sizeof(uint64_t));
     uint32_t top = prec - 1;
     limbs[top / 64] = 1ULL << (top % 64);
+    *exp += 1;
+    return;
+  }
+
+  /* Случай (б). Проверяем бит на позиции prec. */
+  uint32_t pw = prec / 64;
+  uint32_t pb = prec % 64;
+  if (pw < count && ((limbs[pw] >> pb) & 1ULL)) {
+    for (size_t i = 0; i < count; i++) {
+      uint64_t high = (i + 1 < count) ? limbs[i + 1] : 0;
+      limbs[i] = (limbs[i] >> 1) | (high << 63);
+    }
     *exp += 1;
   }
 }
@@ -275,6 +275,67 @@ int s21_mpf_set_round(s21_mpf_t *dst, const s21_mpf_t *src, s21_mpf_rnd_t rnd) {
   if (mpf_round_up(rnd, round_bit, sticky, src->sign, dst->limbs[0]))
     mpf_add_one(dst->limbs, dst_count, dst->prec, &dst->exp);
 
+  return 0;
+}
+
+/* Смена точности на месте, сохраняя значение.
+   Расширение — точно.  Сужение — округление по RNDN.
+   Спецзначения (ZERO / INF / NAN) переносятся как есть.
+
+   Опорный инвариант: exp не зависит от prec и равен «показателю
+   MSB + 1», то есть вес старшего бита мантиссы — это 2^(exp - 1).
+   При смене prec мантисса сдвигается так, чтобы этот вес не
+   изменился, а exp остаётся на месте (кроме случая округления
+   вверх через границу, где exp инкрементируется). */
+int s21_mpf_set_prec(s21_mpf_t *x, uint32_t new_prec) {
+  if (x == NULL) return -1;
+  if (new_prec < 2) new_prec = 2;
+  if (new_prec == x->prec) return 0;
+
+  size_t new_count = s21_mpf_limbs_for_prec(new_prec);
+  uint64_t *new_limbs = calloc(new_count, sizeof(uint64_t));
+  if (new_limbs == NULL) return -1;
+
+  /* Спецзначения: буфер перераспределяем, поля не трогаем. */
+  if (x->kind != S21_MPF_NORMAL) {
+    free(x->limbs);
+    x->limbs = new_limbs;
+    x->prec  = new_prec;
+    return 0;
+  }
+
+  size_t old_count = s21_mpf_limbs_for_prec(x->prec);
+  int64_t new_exp = x->exp;
+
+  if (new_prec > x->prec) {
+    /* Расширение — точно. */
+    s21_mpf_shift_left_into(new_limbs, new_count,
+                            x->limbs, old_count,
+                            (int)(new_prec - x->prec));
+  } else {
+    /* Сужение — округление RNDN. */
+    int delta = (int)(x->prec - new_prec);
+    int round_bit = (int)((x->limbs[(delta - 1) / 64] >>
+                           ((delta - 1) % 64)) & 1ULL);
+    int sticky = mpf_sticky_below(x, delta);
+
+    s21_mpf_shift_right_into(new_limbs, new_count,
+                             x->limbs, old_count, delta);
+
+    uint32_t mask_bits = new_prec % 64;
+    if (mask_bits != 0)
+      new_limbs[new_count - 1] &= (1ULL << mask_bits) - 1;
+
+    if (mpf_round_up(S21_MPF_RNDN, round_bit, sticky, x->sign,
+                     new_limbs[0]))
+      mpf_add_one(new_limbs, new_count, new_prec, &new_exp);
+  }
+
+  /* Коммит: только здесь объект меняется. */
+  free(x->limbs);
+  x->limbs = new_limbs;
+  x->prec  = new_prec;
+  x->exp   = new_exp;
   return 0;
 }
 

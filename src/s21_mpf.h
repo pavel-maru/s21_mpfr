@@ -45,7 +45,11 @@ static inline size_t s21_mpf_limbs_for_prec(uint32_t prec) {
 void s21_mpf_init(s21_mpf_t *x); /* prec = 256 по умолчанию */
 void s21_mpf_init2(s21_mpf_t *x, uint32_t prec);
 void s21_mpf_clear(s21_mpf_t *x);
-void s21_mpf_set_prec(s21_mpf_t *x, uint32_t prec);
+
+/* Смена точности на месте, сохраняя значение.
+   Расширение — точно.  Сужение — округление по RNDN.
+   0 — успех, -1 — ошибка (x == NULL или ошибка аллокации). */
+int s21_mpf_set_prec(s21_mpf_t *x, uint32_t prec);
 
 /* ============== Присваивание ============== */
 
