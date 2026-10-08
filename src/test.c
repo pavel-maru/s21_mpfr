@@ -657,6 +657,89 @@ static void test_div(void) {
   printf("[ok] div\n");
 }
 
+static void test_div_many_prec(void) {
+  const uint32_t precs[] = {4,   5,   7,   32,  33,  63,  64,  65,
+                            100, 127, 128, 129, 200, 256, 500};
+  for (size_t i = 0; i < sizeof(precs) / sizeof(precs[0]); i++) {
+    uint32_t p = precs[i];
+    s21_mpf_t a, b, c, e;
+    s21_mpf_init2(&a, p);
+    s21_mpf_init2(&b, p);
+    s21_mpf_init2(&c, p);
+    s21_mpf_init2(&e, p);
+
+    s21_mpf_set_ui(&a, 100);
+    s21_mpf_set_ui(&b, 4);
+    s21_mpf_div(&c, &a, &b);
+    s21_mpf_set_ui(&e, 25);
+    ASSERT(s21_mpf_cmp(&c, &e) == 0, "100 / 4 = 25 при любом p");
+
+    s21_mpf_set_ui(&a, 1000);
+    s21_mpf_set_ui(&b, 8);
+    s21_mpf_div(&c, &a, &b);
+    s21_mpf_set_ui(&e, 125);
+    ASSERT(s21_mpf_cmp(&c, &e) == 0, "1000 / 8 = 125 при любом p");
+
+    s21_mpf_clear(&a);
+    s21_mpf_clear(&b);
+    s21_mpf_clear(&c);
+    s21_mpf_clear(&e);
+  }
+  printf("[ok] div at many precisions\n");
+}
+
+/* Точные степени двойки и round-trip div/mul. */
+static void test_div_powers_of_two(void) {
+  s21_mpf_t a, b, c, e;
+  s21_mpf_init2(&a, 256);
+  s21_mpf_init2(&b, 256);
+  s21_mpf_init2(&c, 256);
+  s21_mpf_init2(&e, 256);
+
+  /* 2^100 / 2^40 = 2^60 */
+  s21_mpf_set_ui(&a, 1);
+  a.exp = 101;
+  s21_mpf_normalize(&a);
+  s21_mpf_set_ui(&b, 1);
+  b.exp = 41;
+  s21_mpf_normalize(&b);
+  s21_mpf_div(&c, &a, &b);
+  s21_mpf_set_ui(&e, 1);
+  e.exp = 61;
+  s21_mpf_normalize(&e);
+  ASSERT(s21_mpf_cmp(&c, &e) == 0, "2^100 / 2^40 = 2^60");
+
+  /* 2^200 / 2^199 = 2 (минимальный шаг экспоненты) */
+  s21_mpf_set_ui(&a, 1);
+  a.exp = 201;
+  s21_mpf_normalize(&a);
+  s21_mpf_set_ui(&b, 1);
+  b.exp = 200;
+  s21_mpf_normalize(&b);
+  s21_mpf_div(&c, &a, &b);
+  s21_mpf_set_ui(&e, 2);
+  ASSERT(s21_mpf_cmp(&c, &e) == 0, "2^200 / 2^199 = 2");
+
+  /* Round-trip: (7/3)*3 ≈ 7.  Проверяет согласованность div/mul. */
+  s21_mpf_set_ui(&a, 7);
+  s21_mpf_set_ui(&b, 3);
+  s21_mpf_div(&c, &a, &b);
+  s21_mpf_mul(&c, &c, &b);
+  s21_mpf_sub(&c, &c, &a);
+  s21_mpf_abs(&c, &c);
+  s21_mpf_t threshold;
+  s21_mpf_init2(&threshold, 256);
+  s21_mpf_set_d(&threshold, 1e-70);
+  ASSERT(s21_mpf_cmp(&c, &threshold) < 0, "(7/3)*3 ≈ 7");
+
+  s21_mpf_clear(&a);
+  s21_mpf_clear(&b);
+  s21_mpf_clear(&c);
+  s21_mpf_clear(&e);
+  s21_mpf_clear(&threshold);
+  printf("[ok] div: powers of two and round-trip\n");
+}
+
 static void test_null_checks(void) {
   s21_mpf_t a, b, c;
   s21_mpf_init2(&a, 64);
@@ -1529,6 +1612,8 @@ int main(void) {
   test_nonmult32_prec();
   test_mul_many_prec();
   test_div();
+  test_div_many_prec();
+  test_div_powers_of_two();
   test_null_checks();
   test_bit_utils();
   test_sqrt();

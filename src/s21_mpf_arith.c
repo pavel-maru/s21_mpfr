@@ -255,95 +255,152 @@ int s21_mpf_mul(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
 }
 
 /* ============================================================
-   Деление: длинное деление побитово
+   Деление: алгоритм D Кнута (TAOCP 4.3.1)
    ============================================================ */
 
-/* rem <<= 1 (len лимбов, перенос между лимбами внутри len). */
-static void rem_shift_left_one(uint64_t *rem, size_t len) {
-  uint64_t carry = 0;
-  for (size_t w = 0; w < len; w++) {
-    uint64_t nc = rem[w] >> 63;
-    rem[w] = (rem[w] << 1) | carry;
-    carry = nc;
+/* Сдвиг, приводящий MSB делителя к биту 63 верхнего лимба.
+   Для prec-битного NORMAL значения MSB стоит в бите prec-1,
+   верхний лимб — n-1, значит сдвиг s = 64n - prec. */
+static uint32_t div_norm_shift(uint32_t prec, size_t n) {
+  uint32_t msb_in_top = prec - 1 - (uint32_t)(64 * (n - 1));
+  return 63 - msb_in_top;
+}
+
+/* V = y_limbs << s, где s — нормализующий сдвиг. V имеет n лимбов. */
+static void div_shift_left_into(uint64_t *V, const uint64_t *y_limbs,
+                                 size_t n, uint32_t s) {
+  if (s == 0) {
+    memcpy(V, y_limbs, n * sizeof(uint64_t));
+    return;
+  }
+  V[0] = y_limbs[0] << s;
+  for (size_t i = 1; i < n; i++) {
+    V[i] = (y_limbs[i] << s) | (y_limbs[i - 1] >> (64 - s));
   }
 }
 
-/* rem >= y? У rem на один лимб больше, чем у y; старший лимб rem —
-   перенос из предыдущего сдвига. */
-static int rem_ge_y(const uint64_t *rem, size_t y_len, const uint64_t *y) {
-  if (rem[y_len] != 0) return 1;
-  for (int w = (int)y_len - 1; w >= 0; w--) {
-    if (rem[w] < y[w]) return 0;
-    if (rem[w] > y[w]) return 1;
-  }
-  return 1;
+/* U = x.mant << (prec + s) = x.mant << (64n): помещает мантиссу
+   делимого в старшие n лимбов U[n..2n-1], младшие n лимбов и
+   верхушечный U[2n] остаются нулями (буфер уже обнулён). */
+static void div_prepare_dividend(uint64_t *U, const uint64_t *x_limbs,
+                                  size_t n) {
+  memcpy(U + n, x_limbs, n * sizeof(uint64_t));
 }
 
-/* rem -= y (y_len лимбов; borrow выходит в rem[y_len]). */
-static void rem_sub_y(uint64_t *rem, size_t y_len, const uint64_t *y) {
-  uint64_t borrow = 0;
-  for (size_t w = 0; w < y_len; w++) {
-    uint64_t diff;
-    uint64_t b1 = __builtin_sub_overflow(rem[w], y[w], &diff);
-    uint64_t b2 = __builtin_sub_overflow(diff, borrow, &diff);
-    rem[w] = diff;
-    borrow = b1 | b2;
+/* Ядро алгоритма D. U — (2n+1) лимбов (dividend), V — n лимбов
+   (нормализован, V[n-1] >= 2^63). Результат Q — (n+1) лимбов.
+   U разрушается. */
+static void div_knuth(uint64_t *U, const uint64_t *V, size_t n, uint64_t *Q) {
+  for (int j = (int)n; j >= 0; j--) {
+    /* D3. Оценка q̂. */
+    unsigned __int128 num =
+        ((unsigned __int128)U[j + n] << 64) | U[j + n - 1];
+    unsigned __int128 qhat_wide = num / V[n - 1];
+    uint64_t qhat = (qhat_wide > UINT64_MAX) ? UINT64_MAX
+                                              : (uint64_t)qhat_wide;
+    unsigned __int128 rhat = num - (unsigned __int128)qhat * V[n - 1];
+
+    /* Уточнение q̂: не более двух итераций. */
+    if (n >= 2) {
+      while ((unsigned __int128)qhat * V[n - 2] >
+             (rhat << 64) + U[j + n - 2]) {
+        qhat--;
+        rhat += V[n - 1];
+        if (rhat >> 64) break;
+      }
+    }
+
+    /* D4. Умножение и вычитание: U[j..j+n] -= q̂ · V. */
+    uint64_t borrow = 0;
+    uint64_t carry = 0;
+    for (size_t i = 0; i < n; i++) {
+      unsigned __int128 p = (unsigned __int128)qhat * V[i] + carry;
+      carry = (uint64_t)(p >> 64);
+      uint64_t p_lo = (uint64_t)p;
+
+      uint64_t t1, t2, c1, c2;
+      c1 = __builtin_sub_overflow(U[j + i], p_lo, &t1);
+      c2 = __builtin_sub_overflow(t1, borrow, &t2);
+      U[j + i] = t2;
+      borrow = c1 | c2;
+    }
+
+    uint64_t t1, t2, c1, c2;
+    c1 = __builtin_sub_overflow(U[j + n], carry, &t1);
+    c2 = __builtin_sub_overflow(t1, borrow, &t2);
+    U[j + n] = t2;
+    uint64_t final_borrow = c1 | c2;
+
+    /* D6. Если q̂ был завышен, прибавляем V обратно. */
+    if (final_borrow) {
+      qhat--;
+      uint64_t carry2 = 0;
+      for (size_t i = 0; i < n; i++) {
+        uint64_t s1, s2, cb1, cb2;
+        cb1 = __builtin_add_overflow(U[j + i], V[i], &s1);
+        cb2 = __builtin_add_overflow(s1, carry2, &s2);
+        U[j + i] = s2;
+        carry2 = cb1 | cb2;
+      }
+      U[j + n] += carry2;
+    }
+
+    Q[j] = qhat;
   }
-  rem[y_len] -= borrow;
 }
 
-/* Установлен ли в q бит prec? Если да, частное >= 2^prec и нужна
+/* Установлен ли в Q бит prec? Если да, частное >= 2^prec и нужна
    нормализация сдвигом на 1 бит вправо с инкрементом экспоненты. */
-static int quotient_has_overflow(const uint64_t *q, size_t q_len,
+static int quotient_has_overflow(const uint64_t *Q, size_t q_len,
                                  uint32_t prec) {
   uint32_t pw = prec / 64;
   uint32_t pb = prec % 64;
   if (pw >= q_len) return 0;
-  return (int)((q[pw] >> pb) & 1ULL);
+  return (int)((Q[pw] >> pb) & 1ULL);
 }
 
-/* q >>= 1 (перенос между лимбами внутри len). */
-static void quotient_shift_right_one(uint64_t *q, size_t len) {
+/* Q >>= 1 (перенос между лимбами внутри len). */
+static void quotient_shift_right_one(uint64_t *Q, size_t len) {
   for (size_t w = 0; w < len; w++) {
-    uint64_t high_bit = (w + 1 < len) ? (q[w + 1] << 63) : 0;
-    q[w] = (q[w] >> 1) | high_bit;
+    uint64_t high = (w + 1 < len) ? (Q[w + 1] << 63) : 0;
+    Q[w] = (Q[w] >> 1) | high;
   }
 }
 
-/* Операнды NORMAL — спецзначения обрабатываются в div_special. */
+/* Операнды NORMAL, одинаковой точности — спецзначения обрабатываются
+   в div_special. Возвращает 0 при успехе, -1 при ошибке аллокации. */
 int s21_mpf_div_raw(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
   uint32_t prec = res->prec;
-  size_t count = s21_mpf_limbs_for_prec(prec);
-  size_t rem_len = count + 1;
+  size_t n = s21_mpf_limbs_for_prec(prec);
 
-  uint64_t *rem = calloc(rem_len, sizeof(uint64_t));
-  uint64_t *q = calloc(rem_len, sizeof(uint64_t));
-
-  /* Длинное деление: dividend = x.mant · 2^prec (2·prec бит, MSB-первым),
-     divisor = y.mant (prec бит). Частное — не более prec+1 бит. */
-  for (int i = 2 * (int)prec - 1; i >= 0; i--) {
-    rem_shift_left_one(rem, rem_len);
-    if (i >= (int)prec) {
-      int src = i - (int)prec;
-      rem[0] |= (x->limbs[src / 64] >> (src % 64)) & 1ULL;
-    }
-    if (rem_ge_y(rem, count, y->limbs)) {
-      rem_sub_y(rem, count, y->limbs);
-      q[i / 64] |= 1ULL << (i % 64);
-    }
+  uint64_t *U = calloc(2 * n + 1, sizeof(uint64_t));
+  uint64_t *V = calloc(n, sizeof(uint64_t));
+  uint64_t *Q = calloc(n + 1, sizeof(uint64_t));
+  if (U == NULL || V == NULL || Q == NULL) {
+    free(U);
+    free(V);
+    free(Q);
+    return -1;
   }
-  free(rem);
 
-  int overflow = quotient_has_overflow(q, rem_len, prec);
-  if (overflow) quotient_shift_right_one(q, rem_len);
+  uint32_t s = div_norm_shift(prec, n);
+  div_shift_left_into(V, y->limbs, n, s);
+  div_prepare_dividend(U, x->limbs, n);
+  div_knuth(U, V, n, Q);
 
-  memcpy(res->limbs, q, count * sizeof(uint64_t));
-  free(q);
+  free(U);
+  free(V);
+
+  int overflow = quotient_has_overflow(Q, n + 1, prec);
+  if (overflow) quotient_shift_right_one(Q, n + 1);
+
+  memcpy(res->limbs, Q, n * sizeof(uint64_t));
+  free(Q);
 
   uint32_t mask_bits = prec % 64;
-  if (mask_bits != 0) res->limbs[count - 1] &= (1ULL << mask_bits) - 1;
+  if (mask_bits != 0) res->limbs[n - 1] &= (1ULL << mask_bits) - 1;
 
-  res->exp = x->exp - y->exp + (overflow ? 1 : 0);
+  res->exp  = x->exp - y->exp + (overflow ? 1 : 0);
   res->sign = x->sign ^ y->sign;
   res->kind = S21_MPF_NORMAL;
   s21_mpf_normalize(res);
