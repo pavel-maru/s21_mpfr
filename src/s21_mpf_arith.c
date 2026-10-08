@@ -165,7 +165,7 @@ int s21_mpf_sub(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
 }
 
 /* ============================================================
-   Умножение: raw + публичная
+   Умножение с округлением RNDN
    ============================================================ */
 
 static void s21_mpf_mul_mant(uint64_t *prod, const uint64_t *a,
@@ -190,40 +190,37 @@ static void s21_mpf_mul_mant(uint64_t *prod, const uint64_t *a,
   }
 }
 
-/* Операнды NORMAL — спецзначения обрабатываются в mul_special. */
+/* Операнды NORMAL, все одинаковой точности. Внутри — рабочие
+   guard bits wp = res->prec + 64; произведение умещается в 2*wp
+   бит, финальное округление до res->prec — RNDN через set_round. */
 int s21_mpf_mul_raw(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
-  size_t count = s21_mpf_limbs_for_prec(res->prec);
-  uint64_t *prod = malloc(2 * count * sizeof(uint64_t));
-  s21_mpf_mul_mant(prod, x->limbs, y->limbs, count);
+  uint32_t wp = res->prec + 64;
 
-  uint32_t word_shift = res->prec / 64;
-  uint32_t bit_shift = res->prec % 64;
+  s21_mpf_t xw, yw, temp;
+  s21_mpf_init2(&xw, wp);
+  s21_mpf_init2(&yw, wp);
+  s21_mpf_init2(&temp, 2 * wp);
 
-  for (size_t i = 0; i < count; i++) {
-    int src = (int)i + (int)word_shift;
-    if (src >= (int)(2 * count)) {
-      res->limbs[i] = 0;
-    } else {
-      uint64_t v = prod[src];
-      if (bit_shift && src + 1 < (int)(2 * count))
-        v = (v >> bit_shift) | (prod[src + 1] << (64 - bit_shift));
-      else if (bit_shift)
-        v >>= bit_shift;
-      res->limbs[i] = v;
-    }
-  }
+  s21_mpf_set(&xw, x);
+  s21_mpf_set(&yw, y);
+
+  size_t wcount = s21_mpf_limbs_for_prec(wp);
+  uint64_t *prod = malloc(2 * wcount * sizeof(uint64_t));
+  s21_mpf_mul_mant(prod, xw.limbs, yw.limbs, wcount);
+  memcpy(temp.limbs, prod,
+         s21_mpf_limbs_for_prec(2 * wp) * sizeof(uint64_t));
   free(prod);
 
-  uint32_t mask_bits = res->prec % 64;
-  if (mask_bits != 0) {
-    uint64_t mask = (1ULL << mask_bits) - 1;
-    res->limbs[count - 1] &= mask;
-  }
+  temp.exp  = xw.exp + yw.exp;
+  temp.sign = xw.sign ^ yw.sign;
+  temp.kind = S21_MPF_NORMAL;
+  s21_mpf_normalize(&temp);
 
-  res->exp = x->exp + y->exp;
-  res->sign = x->sign ^ y->sign;
-  res->kind = S21_MPF_NORMAL;
-  s21_mpf_normalize(res);
+  s21_mpf_set(res, &temp);
+
+  s21_mpf_clear(&temp);
+  s21_mpf_clear(&xw);
+  s21_mpf_clear(&yw);
   return 0;
 }
 
@@ -252,36 +249,7 @@ int s21_mpf_mul(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
   if (s21_mpf_check_binary(res, x, y)) return -1;
 
   if (!mul_special(res, x, y)) {
-    /* Работаем в точности wp = 2 * prec результата. */
-    uint32_t wp = 2 * res->prec;
-    s21_mpf_t xw, yw;
-    s21_mpf_init2(&xw, wp);
-    s21_mpf_init2(&yw, wp);
-    s21_mpf_set(&xw, x);
-    s21_mpf_set(&yw, y);
-
-    size_t wcount = s21_mpf_limbs_for_prec(wp);
-    uint64_t *prod = malloc(2 * wcount * sizeof(uint64_t));
-    s21_mpf_mul_mant(prod, xw.limbs, yw.limbs, wcount);
-
-    /* temp.prec равен реальной точности произведения 2 * wp. */
-    uint32_t prod_prec = 2 * wp;
-    s21_mpf_t temp;
-    s21_mpf_init2(&temp, prod_prec);
-    memcpy(temp.limbs, prod,
-           s21_mpf_limbs_for_prec(prod_prec) * sizeof(uint64_t));
-    free(prod);
-
-    temp.exp = xw.exp + yw.exp;
-    temp.sign = xw.sign ^ yw.sign;
-    temp.kind = S21_MPF_NORMAL;
-    s21_mpf_normalize(&temp);
-
-    s21_mpf_set(res, &temp);
-
-    s21_mpf_clear(&temp);
-    s21_mpf_clear(&xw);
-    s21_mpf_clear(&yw);
+    s21_mpf_mul_raw(res, x, y);
   }
   return 0;
 }
