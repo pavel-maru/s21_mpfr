@@ -1270,6 +1270,107 @@ static void test_set_round(void) {
   printf("[ok] set_round (RNDN/RNDZ/RNDU/RNDD)\n");
 }
 
+/* Добавить 2^-e к x (положительное e). */
+static void add_pow2(s21_mpf_t *x, int e) {
+  s21_mpf_t t;
+  s21_mpf_init2(&t, x->prec);
+  s21_mpf_set_ui(&t, 1);
+  t.exp -= e;
+  s21_mpf_normalize(&t);
+  s21_mpf_add(x, x, &t);
+  s21_mpf_clear(&t);
+}
+
+static void test_set_round_nonmult64(void) {
+  s21_mpf_t a, b, e;
+
+  /* Сценарий 1: widening 33 -> 130, значение сохраняется. */
+  s21_mpf_init2(&a, 33);
+  s21_mpf_init2(&b, 130);
+  s21_mpf_init2(&e, 130);
+  s21_mpf_set_ui(&a, 5);
+  s21_mpf_set_ui(&e, 5);
+  ASSERT(s21_mpf_set_round(&b, &a, S21_MPF_RNDN) == 0, "wide: rc");
+  ASSERT(s21_mpf_cmp(&b, &e) == 0, "wide 33->130: 5 preserved");
+  s21_mpf_clear(&a); s21_mpf_clear(&b); s21_mpf_clear(&e);
+
+  /* Сценарий 2: narrow exact 130 -> 33. */
+  s21_mpf_init2(&a, 130);
+  s21_mpf_init2(&b, 33);
+  s21_mpf_init2(&e, 33);
+  s21_mpf_set_ui(&a, 5);
+  s21_mpf_set_ui(&e, 5);
+  ASSERT(s21_mpf_set_round(&b, &a, S21_MPF_RNDN) == 0, "narrow exact: rc");
+  ASSERT(s21_mpf_cmp(&b, &e) == 0, "narrow 130->33: 5 preserved");
+  s21_mpf_clear(&a); s21_mpf_clear(&b); s21_mpf_clear(&e);
+
+  /* Сценарий 3: tie-to-even при некратном целевом prec.
+     x = 1 + 2^-63 при prec=256, сужение до 63.
+     round_bit = 1, sticky = 0, lsb(mant_after) = 0 → округление к 1. */
+  s21_mpf_init2(&a, 256);
+  s21_mpf_init2(&b, 63);
+  s21_mpf_init2(&e, 63);
+  s21_mpf_set_ui(&a, 1);
+  add_pow2(&a, 63);  /* a = 1 + 2^-63 */
+  s21_mpf_set_ui(&e, 1);
+  ASSERT(s21_mpf_set_round(&b, &a, S21_MPF_RNDN) == 0, "tie: rc");
+  ASSERT(s21_mpf_cmp(&b, &e) == 0, "tie 256->63: RNDN -> 1");
+  s21_mpf_clear(&a); s21_mpf_clear(&b); s21_mpf_clear(&e);
+
+  /* Сценарий 4: round + sticky, все четыре режима.
+     x = 1 + 3·2^-64 при prec=256, сужение до 63.
+     Мантисса источника: биты 192 (2^-63) и 191 (2^-64).
+     round_bit = бит 192 = 1, sticky = бит 191 = 1.
+     Ожидания:
+       RNDN → 1 + 2^-62
+       RNDZ → 1
+       RNDU → 1 + 2^-62
+       RNDD → 1 */
+  s21_mpf_init2(&a, 256);
+  s21_mpf_init2(&b, 63);
+  s21_mpf_init2(&e, 63);
+  s21_mpf_set_ui(&a, 1);
+  add_pow2(&a, 63);
+  add_pow2(&a, 64);  /* a = 1 + 3·2^-64 */
+
+  s21_mpf_set_round(&b, &a, S21_MPF_RNDN);
+  s21_mpf_set_ui(&e, 1);
+  add_pow2(&e, 62);  /* e = 1 + 2^-62 */
+  ASSERT(s21_mpf_cmp(&b, &e) == 0, "RNDN: 1 + 3·2^-64 -> 1 + 2^-62");
+
+  s21_mpf_set_round(&b, &a, S21_MPF_RNDZ);
+  s21_mpf_set_ui(&e, 1);
+  ASSERT(s21_mpf_cmp(&b, &e) == 0, "RNDZ: 1 + 3·2^-64 -> 1");
+
+  s21_mpf_set_round(&b, &a, S21_MPF_RNDU);
+  s21_mpf_set_ui(&e, 1);
+  add_pow2(&e, 62);
+  ASSERT(s21_mpf_cmp(&b, &e) == 0, "RNDU: 1 + 3·2^-64 -> 1 + 2^-62");
+
+  s21_mpf_set_round(&b, &a, S21_MPF_RNDD);
+  s21_mpf_set_ui(&e, 1);
+  ASSERT(s21_mpf_cmp(&b, &e) == 0, "RNDD: 1 + 3·2^-64 -> 1");
+
+  s21_mpf_clear(&a); s21_mpf_clear(&b); s21_mpf_clear(&e);
+
+  /* Сценарий 5: round-up через границу мантиссы (случай (б) в mpf_add_one).
+     x = 2^64 - 1 при prec=64, сужение до 63.
+     mant_after = 2^63 - 1, round_bit = 1, lsb = 1 → +1 → 2^63.
+     Без нормализации получилось бы MSB на позиции 63 вместо 62.
+     Ожидание: 2^64 (mant = 2^62, exp = 65). */
+  s21_mpf_init2(&a, 64);
+  s21_mpf_init2(&b, 63);
+  s21_mpf_init2(&e, 63);
+  s21_mpf_set_ui(&a, 0xFFFFFFFFFFFFFFFFUL);  /* 2^64 - 1 */
+  ASSERT(s21_mpf_set_round(&b, &a, S21_MPF_RNDN) == 0, "overflow: rc");
+  s21_mpf_set_ui(&e, 1);
+  e.exp += 64;  /* e = 2^64 при prec=63: mant=2^62, exp=65 */
+  ASSERT(s21_mpf_cmp(&b, &e) == 0, "overflow 64->63: 2^64-1 -> 2^64");
+  s21_mpf_clear(&a); s21_mpf_clear(&b); s21_mpf_clear(&e);
+
+  printf("[ok] set_round: prec not multiple of 64\n");
+}
+
 static void test_set_prec(void) {
   s21_mpf_t x, expected;
 
@@ -1412,6 +1513,7 @@ int main(void) {
   test_atan();
   test_tan_asin_acos();
   test_set_round();
+  test_set_round_nonmult64();
   test_set_prec();
   printf("=== Все тесты прошли ===\n");
   return 0;
