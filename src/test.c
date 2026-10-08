@@ -533,6 +533,31 @@ static void test_nonmult32_prec(void) {
   printf("[ok] prec, не кратные 32 (33, 100, 130)\n");
 }
 
+static void test_mul_many_prec(void) {
+  const uint32_t precs[] = {4,   5,   7,   32,  33,  63,  64,  65,
+                            100, 127, 128, 129, 200, 256, 500};
+  for (size_t i = 0; i < sizeof(precs) / sizeof(precs[0]); i++) {
+    uint32_t p = precs[i];
+    s21_mpf_t a, b, c, e;
+    s21_mpf_init2(&a, p);
+    s21_mpf_init2(&b, p);
+    s21_mpf_init2(&c, p);
+    s21_mpf_init2(&e, p);
+
+    s21_mpf_set_ui(&a, 3);
+    s21_mpf_set_ui(&b, 5);
+    s21_mpf_mul(&c, &a, &b);
+    s21_mpf_set_ui(&e, 15);
+    ASSERT(s21_mpf_cmp(&c, &e) == 0, "3 * 5 = 15 при любом p >= 4");
+
+    s21_mpf_clear(&a);
+    s21_mpf_clear(&b);
+    s21_mpf_clear(&c);
+    s21_mpf_clear(&e);
+  }
+  printf("[ok] mul at many precisions\n");
+}
+
 static void test_div(void) {
   s21_mpf_t a, b, c, expected;
   s21_mpf_init2(&a, 256);
@@ -1502,6 +1527,7 @@ int main(void) {
   test_add_sub();
   test_mul();
   test_nonmult32_prec();
+  test_mul_many_prec();
   test_div();
   test_null_checks();
   test_bit_utils();
