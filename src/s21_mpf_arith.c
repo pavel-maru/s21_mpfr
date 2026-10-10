@@ -8,6 +8,20 @@
    Сложение / вычитание: raw
    ============================================================ */
 
+/* Вспомогательная: буфер для сдвинутого операнда.
+   Если count лимбов влезает в S21_MPF_STACK_LIMBS — используем
+   стек, иначе calloc. Возвращает указатель и признак владения. */
+static uint64_t *shifted_alloc(size_t count, uint64_t *stack_buf,
+                               int *owned) {
+  if (count <= S21_MPF_STACK_LIMBS) {
+    memset(stack_buf, 0, count * sizeof(uint64_t));
+    *owned = 0;
+    return stack_buf;
+  }
+  *owned = 1;
+  return calloc(count, sizeof(uint64_t));
+}
+
 void s21_mpf_add_raw(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
   if (x->sign == y->sign) {
     size_t count = s21_mpf_limbs_for_prec(res->prec);
@@ -19,7 +33,9 @@ void s21_mpf_add_raw(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
     }
 
     int64_t shift = a->exp - b->exp;
-    uint64_t *b_shifted = calloc(count, sizeof(uint64_t));
+    uint64_t stack_buf[S21_MPF_STACK_LIMBS];
+    int owned = 0;
+    uint64_t *b_shifted = shifted_alloc(count, stack_buf, &owned);
     if (shift < (int64_t)count * 64)
       s21_mpf_shift_right_into(b_shifted, count, b->limbs, count, (int)shift);
 
@@ -31,7 +47,7 @@ void s21_mpf_add_raw(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
       res->limbs[i] = sum;
       carry = c1 | c2;
     }
-    free(b_shifted);
+    if (owned) free(b_shifted);
 
     res->exp = a->exp;
     res->sign = x->sign;
@@ -61,7 +77,9 @@ void s21_mpf_add_raw(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
   size_t count = s21_mpf_limbs_for_prec(res->prec);
 
   int64_t shift = a->exp - b->exp;
-  uint64_t *b_shifted = calloc(count, sizeof(uint64_t));
+  uint64_t stack_buf[S21_MPF_STACK_LIMBS];
+  int owned = 0;
+  uint64_t *b_shifted = shifted_alloc(count, stack_buf, &owned);
   if (shift < (int64_t)count * 64)
     s21_mpf_shift_right_into(b_shifted, count, b->limbs, count, (int)shift);
 
@@ -73,7 +91,7 @@ void s21_mpf_add_raw(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
     res->limbs[i] = diff;
     borrow = b1 | b2;
   }
-  free(b_shifted);
+  if (owned) free(b_shifted);
 
   res->exp = a->exp;
   res->sign = a->sign;
@@ -82,12 +100,12 @@ void s21_mpf_add_raw(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
 }
 
 void s21_mpf_sub_raw(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
-  /* x - y = x + (-y). Устраняет дублирование ветки разных знаков. */
-  s21_mpf_t neg_y;
-  s21_mpf_init2(&neg_y, y->prec);
-  s21_mpf_neg_raw(&neg_y, y);
-  s21_mpf_add_raw(res, x, &neg_y);
-  s21_mpf_clear(&neg_y);
+  /* x - y = x + (-y). */
+  s21_mpf_stack_t neg_y_s;
+  s21_mpf_stack_init(&neg_y_s, y->prec);
+  s21_mpf_neg_raw(&neg_y_s.mpf, y);
+  s21_mpf_add_raw(res, x, &neg_y_s.mpf);
+  s21_mpf_stack_clear(&neg_y_s);
 }
 
 void s21_mpf_neg_raw(s21_mpf_t *res, const s21_mpf_t *x) {
@@ -99,7 +117,6 @@ void s21_mpf_neg_raw(s21_mpf_t *res, const s21_mpf_t *x) {
    Публичные add / sub
    ============================================================ */
 
-/* Возвращает 1, если результат уже определён (спецслучай), 0 — надо считать. */
 static int add_special(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
   if (x->kind == S21_MPF_NAN || y->kind == S21_MPF_NAN) {
     s21_mpf_set_nan(res);
@@ -136,19 +153,19 @@ int s21_mpf_add(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
 
   if (!add_special(res, x, y)) {
     uint32_t wp = res->prec + 64;
-    s21_mpf_t xw, yw, rw;
-    s21_mpf_init2(&xw, wp);
-    s21_mpf_init2(&yw, wp);
-    s21_mpf_init2(&rw, wp);
-    s21_mpf_set(&xw, x);
-    s21_mpf_set(&yw, y);
+    s21_mpf_stack_t xw_s, yw_s, rw_s;
+    s21_mpf_stack_init(&xw_s, wp);
+    s21_mpf_stack_init(&yw_s, wp);
+    s21_mpf_stack_init(&rw_s, wp);
+    s21_mpf_set(&xw_s.mpf, x);
+    s21_mpf_set(&yw_s.mpf, y);
 
-    s21_mpf_add_raw(&rw, &xw, &yw);
-    s21_mpf_set(res, &rw);
+    s21_mpf_add_raw(&rw_s.mpf, &xw_s.mpf, &yw_s.mpf);
+    s21_mpf_set(res, &rw_s.mpf);
 
-    s21_mpf_clear(&xw);
-    s21_mpf_clear(&yw);
-    s21_mpf_clear(&rw);
+    s21_mpf_stack_clear(&xw_s);
+    s21_mpf_stack_clear(&yw_s);
+    s21_mpf_stack_clear(&rw_s);
   }
   return 0;
 }
@@ -156,11 +173,11 @@ int s21_mpf_add(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
 int s21_mpf_sub(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
   if (s21_mpf_check_binary(res, x, y)) return -1;
 
-  s21_mpf_t neg_y;
-  s21_mpf_init2(&neg_y, y->prec);
-  s21_mpf_neg_raw(&neg_y, y);
-  int rc = s21_mpf_add(res, x, &neg_y);
-  s21_mpf_clear(&neg_y);
+  s21_mpf_stack_t neg_y_s;
+  s21_mpf_stack_init(&neg_y_s, y->prec);
+  s21_mpf_neg_raw(&neg_y_s.mpf, y);
+  int rc = s21_mpf_add(res, x, &neg_y_s.mpf);
+  s21_mpf_stack_clear(&neg_y_s);
   return rc;
 }
 
@@ -192,7 +209,11 @@ static void s21_mpf_mul_mant(uint64_t *prod, const uint64_t *a,
 
 /* Операнды NORMAL, все одинаковой точности. Внутри — рабочие
    guard bits wp = res->prec + 64; произведение умещается в 2*wp
-   бит, финальное округление до res->prec — RNDN через set_round. */
+   бит, финальное округление до res->prec — RNDN через set_round.
+
+   NOTE: здесь пока не применена схема со стековыми mpf: temp
+   требует 2*wp лимбов, что не влезает в S21_MPF_STACK_LIMBS при
+   больших prec. Отдельная задача. */
 int s21_mpf_mul_raw(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
   uint32_t wp = res->prec + 64;
 
@@ -257,15 +278,11 @@ int s21_mpf_mul(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
    Деление: алгоритм D Кнута (TAOCP 4.3.1)
    ============================================================ */
 
-/* Сдвиг, приводящий MSB делителя к биту 63 верхнего лимба.
-   Для prec-битного NORMAL значения MSB стоит в бите prec-1,
-   верхний лимб — n-1, значит сдвиг s = 64n - prec. */
 static uint32_t div_norm_shift(uint32_t prec, size_t n) {
   uint32_t msb_in_top = prec - 1 - (uint32_t)(64 * (n - 1));
   return 63 - msb_in_top;
 }
 
-/* V = y_limbs << s, где s — нормализующий сдвиг. V имеет n лимбов. */
 static void div_shift_left_into(uint64_t *V, const uint64_t *y_limbs, size_t n,
                                 uint32_t s) {
   if (s == 0) {
@@ -278,26 +295,18 @@ static void div_shift_left_into(uint64_t *V, const uint64_t *y_limbs, size_t n,
   }
 }
 
-/* U = x.mant << (prec + s) = x.mant << (64n): помещает мантиссу
-   делимого в старшие n лимбов U[n..2n-1], младшие n лимбов и
-   верхушечный U[2n] остаются нулями (буфер уже обнулён). */
 static void div_prepare_dividend(uint64_t *U, const uint64_t *x_limbs,
                                  size_t n) {
   memcpy(U + n, x_limbs, n * sizeof(uint64_t));
 }
 
-/* Ядро алгоритма D. U — (2n+1) лимбов (dividend), V — n лимбов
-   (нормализован, V[n-1] >= 2^63). Результат Q — (n+1) лимбов.
-   U разрушается. */
 static void div_knuth(uint64_t *U, const uint64_t *V, size_t n, uint64_t *Q) {
   for (int j = (int)n; j >= 0; j--) {
-    /* D3. Оценка q̂. */
     unsigned __int128 num = ((unsigned __int128)U[j + n] << 64) | U[j + n - 1];
     unsigned __int128 qhat_wide = num / V[n - 1];
     uint64_t qhat = (qhat_wide > UINT64_MAX) ? UINT64_MAX : (uint64_t)qhat_wide;
     unsigned __int128 rhat = num - (unsigned __int128)qhat * V[n - 1];
 
-    /* Уточнение q̂: не более двух итераций. */
     if (n >= 2) {
       while ((unsigned __int128)qhat * V[n - 2] > (rhat << 64) + U[j + n - 2]) {
         qhat--;
@@ -306,7 +315,6 @@ static void div_knuth(uint64_t *U, const uint64_t *V, size_t n, uint64_t *Q) {
       }
     }
 
-    /* D4. Умножение и вычитание: U[j..j+n] -= q̂ · V. */
     uint64_t borrow = 0;
     uint64_t carry = 0;
     for (size_t i = 0; i < n; i++) {
@@ -327,7 +335,6 @@ static void div_knuth(uint64_t *U, const uint64_t *V, size_t n, uint64_t *Q) {
     U[j + n] = t2;
     uint64_t final_borrow = c1 | c2;
 
-    /* D6. Если q̂ был завышен, прибавляем V обратно. */
     if (final_borrow) {
       qhat--;
       uint64_t carry2 = 0;
@@ -345,8 +352,6 @@ static void div_knuth(uint64_t *U, const uint64_t *V, size_t n, uint64_t *Q) {
   }
 }
 
-/* Установлен ли в Q бит prec? Если да, частное >= 2^prec и нужна
-   нормализация сдвигом на 1 бит вправо с инкрементом экспоненты. */
 static int quotient_has_overflow(const uint64_t *Q, size_t q_len,
                                  uint32_t prec) {
   uint32_t pw = prec / 64;
@@ -355,7 +360,6 @@ static int quotient_has_overflow(const uint64_t *Q, size_t q_len,
   return (int)((Q[pw] >> pb) & 1ULL);
 }
 
-/* Q >>= 1 (перенос между лимбами внутри len). */
 static void quotient_shift_right_one(uint64_t *Q, size_t len) {
   for (size_t w = 0; w < len; w++) {
     uint64_t high = (w + 1 < len) ? (Q[w + 1] << 63) : 0;
@@ -363,35 +367,45 @@ static void quotient_shift_right_one(uint64_t *Q, size_t len) {
   }
 }
 
-/* Операнды NORMAL, одинаковой точности — спецзначения обрабатываются
-   в div_special. Возвращает 0 при успехе, -1 при ошибке аллокации. */
+/* Операнды NORMAL — спецзначения обрабатываются в div_special.
+
+   Рабочие буферы U (2n+1), V (n), Q (n+1) — в одном стековом
+   массиве, если 4n+2 <= 4 * S21_MPF_STACK_LIMBS. Иначе calloc.
+   Зануляется только используемая часть (total лимбов), не весь
+   стековый буфер. */
 int s21_mpf_div_raw(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
   uint32_t prec = res->prec;
   size_t n = s21_mpf_limbs_for_prec(prec);
 
-  uint64_t *U = calloc(2 * n + 1, sizeof(uint64_t));
-  uint64_t *V = calloc(n, sizeof(uint64_t));
-  uint64_t *Q = calloc(n + 1, sizeof(uint64_t));
-  if (U == NULL || V == NULL || Q == NULL) {
-    free(U);
-    free(V);
-    free(Q);
-    return -1;
+  size_t u_len = 2 * n + 1;
+  size_t v_len = n;
+  size_t q_len = n + 1;
+  size_t total = u_len + v_len + q_len;
+
+  uint64_t stack_buf[4 * S21_MPF_STACK_LIMBS];
+  int owned = 0;
+  uint64_t *base;
+  if (total <= 4 * S21_MPF_STACK_LIMBS) {
+    memset(stack_buf, 0, total * sizeof(uint64_t));
+    base = stack_buf;
+  } else {
+    base = calloc(total, sizeof(uint64_t));
+    owned = 1;
   }
+  uint64_t *U = base;
+  uint64_t *V = base + u_len;
+  uint64_t *Q = base + u_len + v_len;
 
   uint32_t s = div_norm_shift(prec, n);
   div_shift_left_into(V, y->limbs, n, s);
   div_prepare_dividend(U, x->limbs, n);
   div_knuth(U, V, n, Q);
 
-  free(U);
-  free(V);
-
-  int overflow = quotient_has_overflow(Q, n + 1, prec);
-  if (overflow) quotient_shift_right_one(Q, n + 1);
+  int overflow = quotient_has_overflow(Q, q_len, prec);
+  if (overflow) quotient_shift_right_one(Q, q_len);
 
   memcpy(res->limbs, Q, n * sizeof(uint64_t));
-  free(Q);
+  if (owned) free(base);
 
   uint32_t mask_bits = prec % 64;
   if (mask_bits != 0) res->limbs[n - 1] &= (1ULL << mask_bits) - 1;
@@ -403,8 +417,6 @@ int s21_mpf_div_raw(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
   return 0;
 }
 
-/* Возвращает 1, если результат уже определён (спецслучай), 0 — надо считать.
-   Покрывает все пары x, y, где хотя бы один не NORMAL. */
 static int div_special(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
   if (x->kind == S21_MPF_NAN || y->kind == S21_MPF_NAN) {
     s21_mpf_set_nan(res);
@@ -441,19 +453,19 @@ int s21_mpf_div(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
 
   if (!div_special(res, x, y)) {
     uint32_t wp = res->prec + 64;
-    s21_mpf_t xw, yw, rw;
-    s21_mpf_init2(&xw, wp);
-    s21_mpf_init2(&yw, wp);
-    s21_mpf_init2(&rw, wp);
-    s21_mpf_set(&xw, x);
-    s21_mpf_set(&yw, y);
+    s21_mpf_stack_t xw_s, yw_s, rw_s;
+    s21_mpf_stack_init(&xw_s, wp);
+    s21_mpf_stack_init(&yw_s, wp);
+    s21_mpf_stack_init(&rw_s, wp);
+    s21_mpf_set(&xw_s.mpf, x);
+    s21_mpf_set(&yw_s.mpf, y);
 
-    s21_mpf_div_raw(&rw, &xw, &yw);
-    s21_mpf_set(res, &rw);
+    s21_mpf_div_raw(&rw_s.mpf, &xw_s.mpf, &yw_s.mpf);
+    s21_mpf_set(res, &rw_s.mpf);
 
-    s21_mpf_clear(&xw);
-    s21_mpf_clear(&yw);
-    s21_mpf_clear(&rw);
+    s21_mpf_stack_clear(&xw_s);
+    s21_mpf_stack_clear(&yw_s);
+    s21_mpf_stack_clear(&rw_s);
   }
   return 0;
 }
@@ -481,6 +493,5 @@ void s21_mpf_neg(s21_mpf_t *res, const s21_mpf_t *x) {
 void s21_mpf_abs(s21_mpf_t *res, const s21_mpf_t *x) {
   if (res == NULL || x == NULL) return;
   s21_mpf_set(res, x);
-  /* abs(-0) = +0, abs(-inf) = +inf, abs(-x) = +x. NaN остаётся NaN. */
   res->sign = 0;
 }

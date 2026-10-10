@@ -125,8 +125,8 @@ static void s21_decompose_double(double v, uint64_t *mant, int64_t *exp,
 
   if (e_raw == 0) {
     /* Субнормальные: value = frac * 2^(-1074).
-       Вес LSB мантиссы — 2^(-1074), значит exp_d - 53 = -1074, exp_d = -1021.
-     */
+       Вес LSB мантиссы — 2^(-1074), значит exp_d - 53 = -1074,
+       exp_d = -1021. */
     *mant = frac;
     *exp = 1 - 1022;
   } else {
@@ -348,6 +348,42 @@ int s21_mpf_set_prec(s21_mpf_t *x, uint32_t new_prec) {
   x->prec = new_prec;
   x->exp = new_exp;
   return 0;
+}
+
+/* ============================================================
+   Временные mpf на стеке
+   ============================================================ */
+
+void s21_mpf_stack_init(s21_mpf_stack_t *st, uint32_t prec) {
+  if (prec < 2) prec = 2;
+  size_t count = s21_mpf_limbs_for_prec(prec);
+
+  st->mpf.prec = prec;
+  st->mpf.exp = 0;
+  st->mpf.sign = 0;
+  st->mpf.kind = S21_MPF_ZERO;
+
+  if (count <= S21_MPF_STACK_LIMBS) {
+    /* Зануляем только используемую часть буфера (count младших
+       лимбов). Остальные стековые лимбы не читаются — это
+       эквивалент calloc'а, но без лишней работы. */
+    memset(st->stack_buf, 0, count * sizeof(uint64_t));
+    st->mpf.limbs = st->stack_buf;
+    st->heap_limbs = NULL;
+  } else {
+    st->mpf.limbs = calloc(count, sizeof(uint64_t));
+    st->heap_limbs = st->mpf.limbs;
+  }
+}
+
+void s21_mpf_stack_clear(s21_mpf_stack_t *st) {
+  if (st->heap_limbs != NULL) free(st->heap_limbs);
+  st->heap_limbs = NULL;
+  st->mpf.limbs = NULL;
+  st->mpf.prec = 0;
+  st->mpf.exp = 0;
+  st->mpf.sign = 0;
+  st->mpf.kind = S21_MPF_ZERO;
 }
 
 /* ============================================================
