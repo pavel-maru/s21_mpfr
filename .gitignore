@@ -2,6 +2,7 @@
 *.o
 *.a
 test_mpf
+s21_mpf_repl
 
 # Editor
 .vscode/

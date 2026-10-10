@@ -4,6 +4,7 @@
 # Цели:
 #   make                     — статическая библиотека libs21_mpf.a
 #   make test                — clean + сборка + запуск unit-тестов
+#   make repl                — интерактивная утилита s21_mpf_repl
 #   make clang-format        — применить clang-format ко всем исходникам
 #   make clang-format-check  — dry-run с --Werror (для CI)
 #   make valgrind            — утечки памяти (memcheck)
@@ -30,8 +31,11 @@ LIB = libs21_mpf.a
 TEST_SRC = test.c
 TEST = test_mpf
 
+REPL_SRC = repl.c
+REPL = s21_mpf_repl
+
 HDRS = s21_mpf.h s21_mpf_internal.h
-FORMAT_FILES = $(SRC) $(HDRS) $(TEST_SRC)
+FORMAT_FILES = $(SRC) $(HDRS) $(TEST_SRC) $(REPL_SRC)
 
 # ============================================================
 # Основное: библиотека
@@ -59,6 +63,16 @@ test:
 
 $(TEST): $(TEST_SRC) $(LIB)
 	$(CC) $(CFLAGS) -I. $(TEST_SRC) $(LIB) $(LDFLAGS) -o $@
+
+# ============================================================
+# REPL
+# ============================================================
+
+repl: $(REPL)
+	./$(REPL)
+
+$(REPL): $(REPL_SRC) $(LIB)
+	$(CC) $(CFLAGS) -I. $(REPL_SRC) $(LIB) $(LDFLAGS) -o $@
 
 # ============================================================
 # Форматирование
@@ -100,8 +114,8 @@ gcov_report: clean
 # ============================================================
 
 clean:
-	rm -f $(OBJ) $(LIB) $(TEST) *.gcda *.gcno *.info
+	rm -f $(OBJ) $(LIB) $(TEST) $(REPL) *.gcda *.gcno *.info
 	rm -rf report
 
-.PHONY: all test clang-format clang-format-check valgrind asan ubsan \
+.PHONY: all test repl clang-format clang-format-check valgrind asan ubsan \
         gcov_report clean
