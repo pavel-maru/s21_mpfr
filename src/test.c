@@ -1489,6 +1489,254 @@ static void test_set_round_nonmult64(void) {
   printf("[ok] set_round: prec not multiple of 64\n");
 }
 
+static void test_set_prec(void) {
+  s21_mpf_t x, expected;
+
+  /* 1. Расширение сохраняет значение. */
+  s21_mpf_init2(&x, 32);
+  s21_mpf_init2(&expected, 128);
+  s21_mpf_set_ui(&x, 42);
+  s21_mpf_set_ui(&expected, 42);
+  ASSERT(s21_mpf_set_prec(&x, 128) == 0, "expand: rc");
+  ASSERT(x.prec == 128, "expand: prec");
+  ASSERT(s21_mpf_cmp(&x, &expected) == 0, "expand: value preserved");
+  s21_mpf_clear(&x);
+  s21_mpf_clear(&expected);
+
+  /* 2. Сужение точно (значение представимо). */
+  s21_mpf_init2(&x, 128);
+  s21_mpf_init2(&expected, 32);
+  s21_mpf_set_ui(&x, 7);
+  s21_mpf_set_ui(&expected, 7);
+  ASSERT(s21_mpf_set_prec(&x, 32) == 0, "narrow exact: rc");
+  ASSERT(x.prec == 32, "narrow exact: prec");
+  ASSERT(s21_mpf_cmp(&x, &expected) == 0, "narrow exact: value");
+  s21_mpf_clear(&x);
+  s21_mpf_clear(&expected);
+
+  /* 3. Сужение с округлением: 1 + 2^-5 при prec=128 → prec=4.
+     Ближайшее 4-битное значение — 1.0 (расстояние 1/32),
+     против 1.125 (расстояние 3/32). */
+  s21_mpf_init2(&x, 128);
+  s21_mpf_set_ui(&x, 1);
+  {
+    s21_mpf_t tiny;
+    s21_mpf_init2(&tiny, 128);
+    s21_mpf_set_ui(&tiny, 1);
+    tiny.exp -= 5;
+    s21_mpf_normalize(&tiny);
+    s21_mpf_add(&x, &x, &tiny);
+    s21_mpf_clear(&tiny);
+  }
+  ASSERT(s21_mpf_set_prec(&x, 4) == 0, "narrow round: rc");
+  ASSERT(x.prec == 4, "narrow round: prec");
+  s21_mpf_init2(&expected, 4);
+  s21_mpf_set_ui(&expected, 1);
+  ASSERT(s21_mpf_cmp(&x, &expected) == 0, "narrow round: → 1.0");
+  s21_mpf_clear(&x);
+  s21_mpf_clear(&expected);
+
+  /* 4. Сужение с округлением вверх и переполнением мантиссы:
+     1.111…1₂ → 2.0.  Проверяет, что mpf_add_one корректно
+     обрабатывает случай выхода за границу prec. */
+  s21_mpf_init2(&x, 128);
+  s21_mpf_set_ui(&x, 1);
+  {
+    s21_mpf_t frac, pow;
+    s21_mpf_init2(&frac, 128);
+    s21_mpf_init2(&pow, 128);
+    s21_mpf_set_ui(&pow, 1);
+    /* Складываем 2^-1 + 2^-2 + ... + 2^-2, пока чуть-чуть не дойдём
+       до 2. Проще: построить сумму 2 - 2^-100. */
+    s21_mpf_t two;
+    s21_mpf_init2(&two, 128);
+    s21_mpf_set_ui(&two, 2);
+    s21_mpf_set_ui(&pow, 1);
+    pow.exp -= 100;
+    s21_mpf_normalize(&pow);
+    s21_mpf_sub(&x, &two, &pow); /* x = 2 - 2^-100, чуть меньше 2 */
+    s21_mpf_clear(&frac);
+    s21_mpf_clear(&pow);
+    s21_mpf_clear(&two);
+  }
+  ASSERT(s21_mpf_set_prec(&x, 4) == 0, "narrow to 2.0: rc");
+  ASSERT(x.prec == 4, "narrow to 2.0: prec");
+  s21_mpf_init2(&expected, 4);
+  s21_mpf_set_ui(&expected, 2);
+  ASSERT(s21_mpf_cmp(&x, &expected) == 0, "narrow to 2.0: value");
+  s21_mpf_clear(&x);
+  s21_mpf_clear(&expected);
+
+  /* 5. Same prec — no-op. */
+  s21_mpf_init2(&x, 64);
+  s21_mpf_set_ui(&x, 5);
+  uint64_t saved_exp = (uint64_t)x.exp;
+  ASSERT(s21_mpf_set_prec(&x, 64) == 0, "same: rc");
+  ASSERT(x.prec == 64, "same: prec");
+  ASSERT((uint64_t)x.exp == saved_exp, "same: exp");
+  s21_mpf_clear(&x);
+
+  /* 6. Clamp < 2. */
+  s21_mpf_init2(&x, 32);
+  s21_mpf_set_ui(&x, 1);
+  ASSERT(s21_mpf_set_prec(&x, 0) == 0, "clamp 0: rc");
+  ASSERT(x.prec == 2, "clamp 0: prec == 2");
+  ASSERT(s21_mpf_set_prec(&x, 1) == 0, "clamp 1: rc");
+  ASSERT(x.prec == 2, "clamp 1: prec == 2");
+  s21_mpf_clear(&x);
+
+  /* 7. Спецзначения. */
+  s21_mpf_init2(&x, 32);
+  s21_mpf_set_inf(&x, 1);
+  ASSERT(s21_mpf_set_prec(&x, 128) == 0, "inf: rc");
+  ASSERT(x.prec == 128, "inf: prec");
+  ASSERT(s21_mpf_is_inf(&x) && x.sign == 1, "inf: value");
+  s21_mpf_set_nan(&x);
+  ASSERT(s21_mpf_set_prec(&x, 64) == 0, "nan: rc");
+  ASSERT(s21_mpf_is_nan(&x), "nan: value");
+  s21_mpf_set_zero(&x, 1);
+  ASSERT(s21_mpf_set_prec(&x, 96) == 0, "zero: rc");
+  ASSERT(s21_mpf_is_zero(&x) && x.sign == 1, "zero: value");
+  s21_mpf_clear(&x);
+
+  /* 8. NULL. */
+  ASSERT(s21_mpf_set_prec(NULL, 128) == -1, "NULL");
+
+  printf("[ok] set_prec (in-place, expand/narrow/RNDN, special)\n");
+}
+
+static void test_set_str(void) {
+  s21_mpf_t x, expected, diff, threshold, pi;
+
+  /* Единая точность 512 — покрывает и π-100 (там нужно ≥ 340 бит
+     для 100 цифр), и мелкие тесты. Меньше переинициализаций —
+     меньше шансов забыть clear. */
+  s21_mpf_init2(&x, 512);
+  s21_mpf_init2(&expected, 512);
+  s21_mpf_init2(&diff, 512);
+  s21_mpf_init2(&threshold, 512);
+  s21_mpf_init2(&pi, 512);
+
+  /* Целые — точные, сравнимы по cmp == 0 */
+  ASSERT(s21_mpf_set_str(&x, "42", 10) == 0, "set_str: 42 rc");
+  s21_mpf_set_ui(&expected, 42);
+  ASSERT(s21_mpf_cmp(&x, &expected) == 0, "set_str: 42");
+
+  ASSERT(s21_mpf_set_str(&x, "-7", 10) == 0, "set_str: -7 rc");
+  s21_mpf_set_si(&expected, -7);
+  ASSERT(s21_mpf_cmp(&x, &expected) == 0, "set_str: -7");
+
+  ASSERT(s21_mpf_set_str(&x, "+123", 10) == 0, "set_str: +123 rc");
+  s21_mpf_set_ui(&expected, 123);
+  ASSERT(s21_mpf_cmp(&x, &expected) == 0, "set_str: +123");
+
+  /* Дроби, точно представимые в double */
+  ASSERT(s21_mpf_set_str(&x, "0.5", 10) == 0, "set_str: 0.5 rc");
+  s21_mpf_set_d(&expected, 0.5);
+  ASSERT(s21_mpf_cmp(&x, &expected) == 0, "set_str: 0.5");
+
+  ASSERT(s21_mpf_set_str(&x, ".25", 10) == 0, "set_str: .25 rc");
+  s21_mpf_set_d(&expected, 0.25);
+  ASSERT(s21_mpf_cmp(&x, &expected) == 0, "set_str: .25");
+
+  ASSERT(s21_mpf_set_str(&x, "-0.125", 10) == 0, "set_str: -0.125 rc");
+  s21_mpf_set_d(&expected, -0.125);
+  ASSERT(s21_mpf_cmp(&x, &expected) == 0, "set_str: -0.125");
+
+  /* 3.14 — не представимо в double.
+     set_str даёт ближайшее к истинному 3.14, set_d — к double 3.14.
+     Разница ~1.24e-16, сравниваем с порогом 1e-15. */
+  ASSERT(s21_mpf_set_str(&x, "3.14", 10) == 0, "set_str: 3.14 rc");
+  s21_mpf_set_d(&expected, 3.14);
+  s21_mpf_sub(&diff, &x, &expected);
+  s21_mpf_abs(&diff, &diff);
+  s21_mpf_set_d(&threshold, 1e-15);
+  ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "set_str: 3.14 (within 1e-15)");
+
+  /* 1e10 и 1.5e3 — точные целые в double */
+  ASSERT(s21_mpf_set_str(&x, "1e10", 10) == 0, "set_str: 1e10 rc");
+  s21_mpf_set_d(&expected, 1e10);
+  ASSERT(s21_mpf_cmp(&x, &expected) == 0, "set_str: 1e10");
+
+  ASSERT(s21_mpf_set_str(&x, "1.5e3", 10) == 0, "set_str: 1.5e3 rc");
+  s21_mpf_set_ui(&expected, 1500);
+  ASSERT(s21_mpf_cmp(&x, &expected) == 0, "set_str: 1.5e3 = 1500");
+
+  /* 1.5E-3 = 3/2000 — не двоичная дробь */
+  ASSERT(s21_mpf_set_str(&x, "1.5E-3", 10) == 0, "set_str: 1.5E-3 rc");
+  s21_mpf_set_d(&expected, 0.0015);
+  s21_mpf_sub(&diff, &x, &expected);
+  s21_mpf_abs(&diff, &diff);
+  s21_mpf_set_d(&threshold, 1e-18);
+  ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "set_str: 1.5E-3 (within 1e-18)");
+
+  /* 123.456e2 = 12345.6 */
+  ASSERT(s21_mpf_set_str(&x, "123.456e2", 10) == 0, "set_str: 123.456e2 rc");
+  s21_mpf_set_d(&expected, 12345.6);
+  s21_mpf_sub(&diff, &x, &expected);
+  s21_mpf_abs(&diff, &diff);
+  s21_mpf_set_d(&threshold, 1e-10);
+  ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "set_str: 123.456e2 ≈ 12345.6");
+
+  /* Сравнение с π */
+  s21_mpf_pi(&pi);
+  ASSERT(s21_mpf_set_str(&x, "3.141592653589793", 10) == 0,
+         "set_str: pi rc");
+  s21_mpf_sub(&diff, &x, &pi);
+  s21_mpf_abs(&diff, &diff);
+  s21_mpf_set_d(&threshold, 1e-15);
+  ASSERT(s21_mpf_cmp(&diff, &threshold) < 0,
+         "set_str: pi ≈ 3.141592653589793");
+
+  /* Ноль */
+  ASSERT(s21_mpf_set_str(&x, "0", 10) == 0, "set_str: 0 rc");
+  ASSERT(s21_mpf_is_zero(&x), "set_str: 0");
+  ASSERT(s21_mpf_set_str(&x, "0.000", 10) == 0, "set_str: 0.000 rc");
+  ASSERT(s21_mpf_is_zero(&x), "set_str: 0.000");
+  ASSERT(s21_mpf_set_str(&x, "-0", 10) == 0, "set_str: -0 rc");
+  ASSERT(s21_mpf_is_zero(&x) && x.sign == 1, "set_str: -0 sign");
+
+  /* Спецзначения */
+  ASSERT(s21_mpf_set_str(&x, "inf", 10) == 0, "set_str: inf rc");
+  ASSERT(s21_mpf_is_inf(&x) && x.sign == 0, "set_str: inf");
+  ASSERT(s21_mpf_set_str(&x, "-inf", 10) == 0, "set_str: -inf rc");
+  ASSERT(s21_mpf_is_inf(&x) && x.sign == 1, "set_str: -inf");
+  ASSERT(s21_mpf_set_str(&x, "+Infinity", 10) == 0, "set_str: +Infinity rc");
+  ASSERT(s21_mpf_is_inf(&x) && x.sign == 0, "set_str: +Infinity");
+  ASSERT(s21_mpf_set_str(&x, "NaN", 10) == 0, "set_str: NaN rc");
+  ASSERT(s21_mpf_is_nan(&x), "set_str: NaN");
+
+  /* Ошибки */
+  ASSERT(s21_mpf_set_str(&x, "", 10) == -1, "set_str: empty");
+  ASSERT(s21_mpf_set_str(&x, "abc", 10) == -1, "set_str: abc");
+  ASSERT(s21_mpf_set_str(&x, "12abc", 10) == -1, "set_str: 12abc");
+  ASSERT(s21_mpf_set_str(&x, "1e", 10) == -1, "set_str: 1e");
+  ASSERT(s21_mpf_set_str(&x, "1e+", 10) == -1, "set_str: 1e+");
+  ASSERT(s21_mpf_set_str(&x, "1.2.3", 10) == -1, "set_str: 1.2.3");
+  ASSERT(s21_mpf_set_str(&x, "3.14", 16) == -1, "set_str: base 16 not yet");
+  ASSERT(s21_mpf_set_str(NULL, "1", 10) == -1, "set_str: NULL x");
+  ASSERT(s21_mpf_set_str(&x, NULL, 10) == -1, "set_str: NULL str");
+
+  /* Высокая точность: 100 значащих цифр π.
+     Порог 1e-45 с запасом: 100 цифр даёт ~1e-100 точности, но
+     100-я цифра π уже требует округления при parcing. */
+  ASSERT(s21_mpf_set_str(&x,
+      "3.14159265358979323846264338327950288419716939937510"
+      "58209749445923078164062862089986280348253421170679", 10) == 0,
+      "set_str: pi-100 rc");
+  s21_mpf_sub(&diff, &x, &pi);
+  s21_mpf_abs(&diff, &diff);
+  s21_mpf_set_d(&threshold, 1e-45);
+  ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "set_str: pi-100 ≈ pi");
+
+  s21_mpf_clear(&x);
+  s21_mpf_clear(&expected);
+  s21_mpf_clear(&diff);
+  s21_mpf_clear(&threshold);
+  s21_mpf_clear(&pi);
+  printf("[ok] set_str\n");
+}
+
 /* ============================================================
    ULP-метрика для трансцендентных функций.
 
@@ -1606,122 +1854,6 @@ static void test_ulp_diagnostics(void) {
   printf("[ok] ulp diagnostics\n");
 }
 
-static void test_set_prec(void) {
-  s21_mpf_t x, expected;
-
-  /* 1. Расширение сохраняет значение. */
-  s21_mpf_init2(&x, 32);
-  s21_mpf_init2(&expected, 128);
-  s21_mpf_set_ui(&x, 42);
-  s21_mpf_set_ui(&expected, 42);
-  ASSERT(s21_mpf_set_prec(&x, 128) == 0, "expand: rc");
-  ASSERT(x.prec == 128, "expand: prec");
-  ASSERT(s21_mpf_cmp(&x, &expected) == 0, "expand: value preserved");
-  s21_mpf_clear(&x);
-  s21_mpf_clear(&expected);
-
-  /* 2. Сужение точно (значение представимо). */
-  s21_mpf_init2(&x, 128);
-  s21_mpf_init2(&expected, 32);
-  s21_mpf_set_ui(&x, 7);
-  s21_mpf_set_ui(&expected, 7);
-  ASSERT(s21_mpf_set_prec(&x, 32) == 0, "narrow exact: rc");
-  ASSERT(x.prec == 32, "narrow exact: prec");
-  ASSERT(s21_mpf_cmp(&x, &expected) == 0, "narrow exact: value");
-  s21_mpf_clear(&x);
-  s21_mpf_clear(&expected);
-
-  /* 3. Сужение с округлением: 1 + 2^-5 при prec=128 → prec=4.
-     Ближайшее 4-битное значение — 1.0 (расстояние 1/32),
-     против 1.125 (расстояние 3/32). */
-  s21_mpf_init2(&x, 128);
-  s21_mpf_set_ui(&x, 1);
-  {
-    s21_mpf_t tiny;
-    s21_mpf_init2(&tiny, 128);
-    s21_mpf_set_ui(&tiny, 1);
-    tiny.exp -= 5;
-    s21_mpf_normalize(&tiny);
-    s21_mpf_add(&x, &x, &tiny);
-    s21_mpf_clear(&tiny);
-  }
-  ASSERT(s21_mpf_set_prec(&x, 4) == 0, "narrow round: rc");
-  ASSERT(x.prec == 4, "narrow round: prec");
-  s21_mpf_init2(&expected, 4);
-  s21_mpf_set_ui(&expected, 1);
-  ASSERT(s21_mpf_cmp(&x, &expected) == 0, "narrow round: → 1.0");
-  s21_mpf_clear(&x);
-  s21_mpf_clear(&expected);
-
-  /* 4. Сужение с округлением вверх и переполнением мантиссы:
-     1.111…1₂ → 2.0.  Проверяет, что mpf_add_one корректно
-     обрабатывает случай выхода за границу prec. */
-  s21_mpf_init2(&x, 128);
-  s21_mpf_set_ui(&x, 1);
-  {
-    s21_mpf_t frac, pow;
-    s21_mpf_init2(&frac, 128);
-    s21_mpf_init2(&pow, 128);
-    s21_mpf_set_ui(&pow, 1);
-    /* Складываем 2^-1 + 2^-2 + ... + 2^-2, пока чуть-чуть не дойдём
-       до 2. Проще: построить сумму 2 - 2^-100. */
-    s21_mpf_t two;
-    s21_mpf_init2(&two, 128);
-    s21_mpf_set_ui(&two, 2);
-    s21_mpf_set_ui(&pow, 1);
-    pow.exp -= 100;
-    s21_mpf_normalize(&pow);
-    s21_mpf_sub(&x, &two, &pow); /* x = 2 - 2^-100, чуть меньше 2 */
-    s21_mpf_clear(&frac);
-    s21_mpf_clear(&pow);
-    s21_mpf_clear(&two);
-  }
-  ASSERT(s21_mpf_set_prec(&x, 4) == 0, "narrow to 2.0: rc");
-  ASSERT(x.prec == 4, "narrow to 2.0: prec");
-  s21_mpf_init2(&expected, 4);
-  s21_mpf_set_ui(&expected, 2);
-  ASSERT(s21_mpf_cmp(&x, &expected) == 0, "narrow to 2.0: value");
-  s21_mpf_clear(&x);
-  s21_mpf_clear(&expected);
-
-  /* 5. Same prec — no-op. */
-  s21_mpf_init2(&x, 64);
-  s21_mpf_set_ui(&x, 5);
-  uint64_t saved_exp = (uint64_t)x.exp;
-  ASSERT(s21_mpf_set_prec(&x, 64) == 0, "same: rc");
-  ASSERT(x.prec == 64, "same: prec");
-  ASSERT((uint64_t)x.exp == saved_exp, "same: exp");
-  s21_mpf_clear(&x);
-
-  /* 6. Clamp < 2. */
-  s21_mpf_init2(&x, 32);
-  s21_mpf_set_ui(&x, 1);
-  ASSERT(s21_mpf_set_prec(&x, 0) == 0, "clamp 0: rc");
-  ASSERT(x.prec == 2, "clamp 0: prec == 2");
-  ASSERT(s21_mpf_set_prec(&x, 1) == 0, "clamp 1: rc");
-  ASSERT(x.prec == 2, "clamp 1: prec == 2");
-  s21_mpf_clear(&x);
-
-  /* 7. Спецзначения. */
-  s21_mpf_init2(&x, 32);
-  s21_mpf_set_inf(&x, 1);
-  ASSERT(s21_mpf_set_prec(&x, 128) == 0, "inf: rc");
-  ASSERT(x.prec == 128, "inf: prec");
-  ASSERT(s21_mpf_is_inf(&x) && x.sign == 1, "inf: value");
-  s21_mpf_set_nan(&x);
-  ASSERT(s21_mpf_set_prec(&x, 64) == 0, "nan: rc");
-  ASSERT(s21_mpf_is_nan(&x), "nan: value");
-  s21_mpf_set_zero(&x, 1);
-  ASSERT(s21_mpf_set_prec(&x, 96) == 0, "zero: rc");
-  ASSERT(s21_mpf_is_zero(&x) && x.sign == 1, "zero: value");
-  s21_mpf_clear(&x);
-
-  /* 8. NULL. */
-  ASSERT(s21_mpf_set_prec(NULL, 128) == -1, "NULL");
-
-  printf("[ok] set_prec (in-place, expand/narrow/RNDN, special)\n");
-}
-
 int main(void) {
   printf("=== s21_mpf: базовые тесты ===\n");
   test_init_clear();
@@ -1753,6 +1885,7 @@ int main(void) {
   test_set_round();
   test_set_round_nonmult64();
   test_set_prec();
+  test_set_str();
   test_ulp_diagnostics();
   printf("=== Все тесты прошли ===\n");
   return 0;
