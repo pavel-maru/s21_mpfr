@@ -1489,6 +1489,123 @@ static void test_set_round_nonmult64(void) {
   printf("[ok] set_round: prec not multiple of 64\n");
 }
 
+/* ============================================================
+   ULP-метрика для трансцендентных функций.
+
+   Считаем f(x) при prec = N и prec = 2N. Округляем 2N-результат
+   к N битам, вычитаем, получаем |diff|. Нормируем на ulp(N) —
+   получаем gap в ULP младшей точности. Здоровый алгоритм даёт
+   gap 0 или 1; gap > 2 — сигнал о систематической потере
+   точности (недостаточная рабочая точность, обрезание ряда,
+   накопление ошибок).
+
+   Идея самосогласованная, без внешнего эталона: если f(x)
+   при N и 2N согласованы, значит вычисления сходятся.
+   ============================================================ */
+
+/* Приближение mpf через double. Точность ~53 бита — для
+   диагностики достаточно, поскольку diff обычно много меньше
+   единицы ulp и представим в double без потерь. */
+static double mpf_to_double(const s21_mpf_t *x) {
+  if (x->kind == S21_MPF_ZERO) return 0.0;
+  if (x->kind != S21_MPF_NORMAL) return 0.0; /* не ожидается */
+
+  size_t count = s21_mpf_limbs_for_prec(x->prec);
+  double val = 0.0;
+  int taken = 0;
+  int i = (int)count - 1;
+  for (; i >= 0 && taken < 2; i--, taken++) {
+    val = val * 18446744073709551616.0 + (double)x->limbs[i];
+  }
+  int64_t missed = (int64_t)(i + 1);
+  int64_t e = x->exp - (int64_t)x->prec + 64 * missed;
+  double result = ldexp(val, (int)e);
+  return x->sign ? -result : result;
+}
+
+typedef int (*unary_fn_t)(s21_mpf_t *, const s21_mpf_t *);
+
+/* Обёртка для s21_mpf_pi — она не принимает аргумента. */
+static int wrap_pi(s21_mpf_t *res, const s21_mpf_t *x) {
+  (void)x;
+  return s21_mpf_pi(res);
+}
+
+/* Возвращает gap = |r_lo − round_to_N(r_hi)| / ulp(r_lo),
+   где r_lo = f(arg) при prec N, r_hi = f(arg) при prec 2N. */
+static double measure_ulp_gap(unary_fn_t fn, double arg, uint32_t N) {
+  s21_mpf_t x_lo, x_hi, r_lo, r_hi, r_hi_N, diff;
+  s21_mpf_init2(&x_lo, N);
+  s21_mpf_init2(&x_hi, 2 * N);
+  s21_mpf_init2(&r_lo, N);
+  s21_mpf_init2(&r_hi, 2 * N);
+  s21_mpf_init2(&r_hi_N, N);
+  s21_mpf_init2(&diff, N);
+
+  s21_mpf_set_d(&x_lo, arg);
+  s21_mpf_set_d(&x_hi, arg);
+  fn(&r_lo, &x_lo);
+  fn(&r_hi, &x_hi);
+  s21_mpf_set_round(&r_hi_N, &r_hi, S21_MPF_RNDN);
+
+  s21_mpf_sub(&diff, &r_lo, &r_hi_N);
+  s21_mpf_abs(&diff, &diff);
+
+  double gap = 0.0;
+  if (!s21_mpf_is_zero(&diff)) {
+    double d = mpf_to_double(&diff);
+    gap = ldexp(d, (int)N - (int)r_lo.exp);
+  }
+
+  s21_mpf_clear(&x_lo);
+  s21_mpf_clear(&x_hi);
+  s21_mpf_clear(&r_lo);
+  s21_mpf_clear(&r_hi);
+  s21_mpf_clear(&r_hi_N);
+  s21_mpf_clear(&diff);
+  return gap;
+}
+
+static void test_ulp_diagnostics(void) {
+  struct {
+    const char *name;
+    unary_fn_t fn;
+    double arg;
+  } cases[] = {
+      {"sqrt(2)", s21_mpf_sqrt, 2.0},
+      {"sqrt(10)", s21_mpf_sqrt, 10.0},
+      {"exp(1)", s21_mpf_exp, 1.0},
+      {"exp(-2)", s21_mpf_exp, -2.0},
+      {"log(2)", s21_mpf_log, 2.0},
+      {"log(10)", s21_mpf_log, 10.0},
+      {"sin(1)", s21_mpf_sin, 1.0},
+      {"cos(1)", s21_mpf_cos, 1.0},
+      {"atan(1)", s21_mpf_atan, 1.0},
+      {"atan(10)", s21_mpf_atan, 10.0},
+      {"asin(0.5)", s21_mpf_asin, 0.5},
+      {"acos(0.5)", s21_mpf_acos, 0.5},
+      {"pi", wrap_pi, 0.0},
+  };
+  const uint32_t Ns[] = {32, 64, 128, 256};
+  const size_t nc = sizeof(cases) / sizeof(cases[0]);
+  const size_t nn = sizeof(Ns) / sizeof(Ns[0]);
+
+  printf("  %-11s", "function");
+  for (size_t j = 0; j < nn; j++) printf("  N=%-3u", Ns[j]);
+  printf("\n");
+
+  for (size_t i = 0; i < nc; i++) {
+    printf("  %-11s", cases[i].name);
+    for (size_t j = 0; j < nn; j++) {
+      double gap = measure_ulp_gap(cases[i].fn, cases[i].arg, Ns[j]);
+      printf("  %5.1f", gap);
+      ASSERT(gap <= 2.0, "ulp gap > 2");
+    }
+    printf("\n");
+  }
+  printf("[ok] ulp diagnostics\n");
+}
+
 static void test_set_prec(void) {
   s21_mpf_t x, expected;
 
@@ -1636,6 +1753,7 @@ int main(void) {
   test_set_round();
   test_set_round_nonmult64();
   test_set_prec();
+  test_ulp_diagnostics();
   printf("=== Все тесты прошли ===\n");
   return 0;
 }
