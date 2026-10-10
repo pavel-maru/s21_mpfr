@@ -388,8 +388,8 @@ static const s21_mpf_t *mpf_get_pi(const s21_mpf_t *pi_in, s21_mpf_t *pi_local,
    Сводит a к (-π, π].  pi должно быть на точности не меньше wp.
    ============================================================ */
 
-static void reduce_2pi(s21_mpf_t *r, const s21_mpf_t *a,
-                       const s21_mpf_t *pi, uint32_t wp) {
+static void reduce_2pi(s21_mpf_t *r, const s21_mpf_t *a, const s21_mpf_t *pi,
+                       uint32_t wp) {
   s21_mpf_t two_pi, q, q_r, tmp;
   s21_mpf_init2(&two_pi, wp);
   s21_mpf_init2(&q, wp);

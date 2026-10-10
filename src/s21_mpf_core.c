@@ -12,7 +12,7 @@ void s21_mpf_init2(s21_mpf_t *x, uint32_t prec) {
   if (prec < 2) prec = 2;
   x->prec = prec;
   x->limbs = calloc(s21_mpf_limbs_for_prec(prec), sizeof(uint64_t));
-  x->exp  = 0;
+  x->exp = 0;
   x->sign = 0;
   x->kind = S21_MPF_ZERO;
 }
@@ -25,7 +25,7 @@ void s21_mpf_clear(s21_mpf_t *x) {
     x->limbs = NULL;
   }
   x->prec = 0;
-  x->exp  = 0;
+  x->exp = 0;
   x->sign = 0;
   x->kind = S21_MPF_ZERO;
 }
@@ -41,7 +41,7 @@ void s21_mpf_normalize(s21_mpf_t *x) {
 
   if (last < 0) {
     x->kind = S21_MPF_ZERO;
-    x->exp  = 0;
+    x->exp = 0;
     return;
   }
 
@@ -70,21 +70,21 @@ void s21_mpf_normalize(s21_mpf_t *x) {
 
 void s21_mpf_set_zero(s21_mpf_t *x, int sign) {
   memset(x->limbs, 0, s21_mpf_limbs_for_prec(x->prec) * sizeof(uint64_t));
-  x->exp  = 0;
+  x->exp = 0;
   x->sign = sign ? 1 : 0;
   x->kind = S21_MPF_ZERO;
 }
 
 void s21_mpf_set_nan(s21_mpf_t *x) {
   memset(x->limbs, 0, s21_mpf_limbs_for_prec(x->prec) * sizeof(uint64_t));
-  x->exp  = 0;
+  x->exp = 0;
   x->sign = 0;
   x->kind = S21_MPF_NAN;
 }
 
 void s21_mpf_set_inf(s21_mpf_t *x, int sign) {
   memset(x->limbs, 0, s21_mpf_limbs_for_prec(x->prec) * sizeof(uint64_t));
-  x->exp  = 0;
+  x->exp = 0;
   x->sign = sign ? 1 : 0;
   x->kind = S21_MPF_INF;
 }
@@ -98,7 +98,7 @@ void s21_mpf_set_ui(s21_mpf_t *x, unsigned long v) {
   memset(x->limbs, 0, count * sizeof(uint64_t));
   x->limbs[0] = v;
   x->sign = 0;
-  x->exp  = (int64_t)x->prec;
+  x->exp = (int64_t)x->prec;
   s21_mpf_normalize(x);
 }
 
@@ -113,7 +113,10 @@ void s21_mpf_set_si(s21_mpf_t *x, long v) {
 
 static void s21_decompose_double(double v, uint64_t *mant, int64_t *exp,
                                  int *sign) {
-  union { double d; uint64_t u; } u;
+  union {
+    double d;
+    uint64_t u;
+  } u;
   u.d = v;
 
   *sign = (int)(u.u >> 63);
@@ -122,19 +125,29 @@ static void s21_decompose_double(double v, uint64_t *mant, int64_t *exp,
 
   if (e_raw == 0) {
     /* Субнормальные: value = frac * 2^(-1074).
-       Вес LSB мантиссы — 2^(-1074), значит exp_d - 53 = -1074, exp_d = -1021. */
+       Вес LSB мантиссы — 2^(-1074), значит exp_d - 53 = -1074, exp_d = -1021.
+     */
     *mant = frac;
-    *exp  = 1 - 1022;
+    *exp = 1 - 1022;
   } else {
     *mant = (1ULL << 52) | frac;
-    *exp  = e_raw - 1022;
+    *exp = e_raw - 1022;
   }
 }
 
 void s21_mpf_set_d(s21_mpf_t *x, double v) {
-  if (v != v) { s21_mpf_set_nan(x); return; }
-  if (v == 1.0 / 0.0) { s21_mpf_set_inf(x, 0); return; }
-  if (v == -1.0 / 0.0) { s21_mpf_set_inf(x, 1); return; }
+  if (v != v) {
+    s21_mpf_set_nan(x);
+    return;
+  }
+  if (v == 1.0 / 0.0) {
+    s21_mpf_set_inf(x, 0);
+    return;
+  }
+  if (v == -1.0 / 0.0) {
+    s21_mpf_set_inf(x, 1);
+    return;
+  }
   if (v == 0.0) {
     s21_mpf_set_zero(x, (1.0 / v < 0) ? 1 : 0);
     return;
@@ -150,7 +163,7 @@ void s21_mpf_set_d(s21_mpf_t *x, double v) {
 
   x->limbs[0] = mant_d;
   x->sign = sign_d;
-  x->exp  = exp_d - 53 + (int64_t)x->prec;
+  x->exp = exp_d - 53 + (int64_t)x->prec;
 
   s21_mpf_normalize(x);
 }
@@ -165,9 +178,9 @@ void s21_mpf_set(s21_mpf_t *dst, const s21_mpf_t *src) {
 
 /* Есть ли единичные биты ниже позиции (shift - 1)? */
 static int mpf_sticky_below(const s21_mpf_t *src, int shift) {
-  int top       = shift - 1;
+  int top = shift - 1;
   int full_word = top / 64;
-  int rem_bits  = top % 64;
+  int rem_bits = top % 64;
   for (int i = 0; i < full_word; i++) {
     if (src->limbs[i] != 0) return 1;
   }
@@ -179,17 +192,20 @@ static int mpf_sticky_below(const s21_mpf_t *src, int shift) {
 }
 
 /* Решение об округлении вверх. */
-static int mpf_round_up(s21_mpf_rnd_t rnd, int round_bit, int sticky,
-                        int sign, uint64_t lsb) {
+static int mpf_round_up(s21_mpf_rnd_t rnd, int round_bit, int sticky, int sign,
+                        uint64_t lsb) {
   if (!round_bit && !sticky) return 0;
   switch (rnd) {
-    case S21_MPF_RNDZ: return 0;
-    case S21_MPF_RNDU: return sign == 0;
-    case S21_MPF_RNDD: return sign == 1;
+    case S21_MPF_RNDZ:
+      return 0;
+    case S21_MPF_RNDU:
+      return sign == 0;
+    case S21_MPF_RNDD:
+      return sign == 1;
     case S21_MPF_RNDN:
     default:
       if (!round_bit) return 0;
-      if (sticky)     return 1;
+      if (sticky) return 1;
       return (int)(lsb & 1ULL);
   }
 }
@@ -240,13 +256,13 @@ int s21_mpf_set_round(s21_mpf_t *dst, const s21_mpf_t *src, s21_mpf_rnd_t rnd) {
     size_t src_count = s21_mpf_limbs_for_prec(src->prec);
     size_t n = dst_count < src_count ? dst_count : src_count;
     memcpy(dst->limbs, src->limbs, n * sizeof(uint64_t));
-    dst->exp  = src->exp;
+    dst->exp = src->exp;
     dst->sign = src->sign;
     dst->kind = src->kind;
     return 0;
   }
 
-  dst->exp  = src->exp;
+  dst->exp = src->exp;
   dst->sign = src->sign;
   dst->kind = S21_MPF_NORMAL;
 
@@ -254,19 +270,18 @@ int s21_mpf_set_round(s21_mpf_t *dst, const s21_mpf_t *src, s21_mpf_rnd_t rnd) {
 
   /* Расширение — всегда точно. */
   if (dst->prec > src->prec) {
-    s21_mpf_shift_left_into(dst->limbs, dst_count,
-                            src->limbs, src_count,
+    s21_mpf_shift_left_into(dst->limbs, dst_count, src->limbs, src_count,
                             (int)(dst->prec - src->prec));
     return 0;
   }
 
   /* Сужение — округляем. */
-  int shift     = (int)(src->prec - dst->prec);
-  int round_bit = (int)((src->limbs[(shift - 1) / 64] >> ((shift - 1) % 64)) & 1ULL);
-  int sticky    = mpf_sticky_below(src, shift);
+  int shift = (int)(src->prec - dst->prec);
+  int round_bit =
+      (int)((src->limbs[(shift - 1) / 64] >> ((shift - 1) % 64)) & 1ULL);
+  int sticky = mpf_sticky_below(src, shift);
 
-  s21_mpf_shift_right_into(dst->limbs, dst_count,
-                           src->limbs, src_count, shift);
+  s21_mpf_shift_right_into(dst->limbs, dst_count, src->limbs, src_count, shift);
 
   uint32_t mask_bits = dst->prec % 64;
   if (mask_bits != 0 && dst_count > 0)
@@ -300,7 +315,7 @@ int s21_mpf_set_prec(s21_mpf_t *x, uint32_t new_prec) {
   if (x->kind != S21_MPF_NORMAL) {
     free(x->limbs);
     x->limbs = new_limbs;
-    x->prec  = new_prec;
+    x->prec = new_prec;
     return 0;
   }
 
@@ -309,33 +324,29 @@ int s21_mpf_set_prec(s21_mpf_t *x, uint32_t new_prec) {
 
   if (new_prec > x->prec) {
     /* Расширение — точно. */
-    s21_mpf_shift_left_into(new_limbs, new_count,
-                            x->limbs, old_count,
+    s21_mpf_shift_left_into(new_limbs, new_count, x->limbs, old_count,
                             (int)(new_prec - x->prec));
   } else {
     /* Сужение — округление RNDN. */
     int delta = (int)(x->prec - new_prec);
-    int round_bit = (int)((x->limbs[(delta - 1) / 64] >>
-                           ((delta - 1) % 64)) & 1ULL);
+    int round_bit =
+        (int)((x->limbs[(delta - 1) / 64] >> ((delta - 1) % 64)) & 1ULL);
     int sticky = mpf_sticky_below(x, delta);
 
-    s21_mpf_shift_right_into(new_limbs, new_count,
-                             x->limbs, old_count, delta);
+    s21_mpf_shift_right_into(new_limbs, new_count, x->limbs, old_count, delta);
 
     uint32_t mask_bits = new_prec % 64;
-    if (mask_bits != 0)
-      new_limbs[new_count - 1] &= (1ULL << mask_bits) - 1;
+    if (mask_bits != 0) new_limbs[new_count - 1] &= (1ULL << mask_bits) - 1;
 
-    if (mpf_round_up(S21_MPF_RNDN, round_bit, sticky, x->sign,
-                     new_limbs[0]))
+    if (mpf_round_up(S21_MPF_RNDN, round_bit, sticky, x->sign, new_limbs[0]))
       mpf_add_one(new_limbs, new_count, new_prec, &new_exp);
   }
 
   /* Коммит: только здесь объект меняется. */
   free(x->limbs);
   x->limbs = new_limbs;
-  x->prec  = new_prec;
-  x->exp   = new_exp;
+  x->prec = new_prec;
+  x->exp = new_exp;
   return 0;
 }
 
@@ -343,9 +354,9 @@ int s21_mpf_set_prec(s21_mpf_t *x, uint32_t new_prec) {
    Утилиты
    ============================================================ */
 
-int s21_mpf_is_nan(const s21_mpf_t *x)    { return x->kind == S21_MPF_NAN; }
-int s21_mpf_is_inf(const s21_mpf_t *x)    { return x->kind == S21_MPF_INF; }
-int s21_mpf_is_zero(const s21_mpf_t *x)   { return x->kind == S21_MPF_ZERO; }
+int s21_mpf_is_nan(const s21_mpf_t *x) { return x->kind == S21_MPF_NAN; }
+int s21_mpf_is_inf(const s21_mpf_t *x) { return x->kind == S21_MPF_INF; }
+int s21_mpf_is_zero(const s21_mpf_t *x) { return x->kind == S21_MPF_ZERO; }
 int s21_mpf_is_normal(const s21_mpf_t *x) { return x->kind == S21_MPF_NORMAL; }
 
 int s21_mpf_sign(const s21_mpf_t *x) {

@@ -207,11 +207,10 @@ int s21_mpf_mul_raw(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
   size_t wcount = s21_mpf_limbs_for_prec(wp);
   uint64_t *prod = malloc(2 * wcount * sizeof(uint64_t));
   s21_mpf_mul_mant(prod, xw.limbs, yw.limbs, wcount);
-  memcpy(temp.limbs, prod,
-         s21_mpf_limbs_for_prec(2 * wp) * sizeof(uint64_t));
+  memcpy(temp.limbs, prod, s21_mpf_limbs_for_prec(2 * wp) * sizeof(uint64_t));
   free(prod);
 
-  temp.exp  = xw.exp + yw.exp;
+  temp.exp = xw.exp + yw.exp;
   temp.sign = xw.sign ^ yw.sign;
   temp.kind = S21_MPF_NORMAL;
   s21_mpf_normalize(&temp);
@@ -267,8 +266,8 @@ static uint32_t div_norm_shift(uint32_t prec, size_t n) {
 }
 
 /* V = y_limbs << s, где s — нормализующий сдвиг. V имеет n лимбов. */
-static void div_shift_left_into(uint64_t *V, const uint64_t *y_limbs,
-                                 size_t n, uint32_t s) {
+static void div_shift_left_into(uint64_t *V, const uint64_t *y_limbs, size_t n,
+                                uint32_t s) {
   if (s == 0) {
     memcpy(V, y_limbs, n * sizeof(uint64_t));
     return;
@@ -283,7 +282,7 @@ static void div_shift_left_into(uint64_t *V, const uint64_t *y_limbs,
    делимого в старшие n лимбов U[n..2n-1], младшие n лимбов и
    верхушечный U[2n] остаются нулями (буфер уже обнулён). */
 static void div_prepare_dividend(uint64_t *U, const uint64_t *x_limbs,
-                                  size_t n) {
+                                 size_t n) {
   memcpy(U + n, x_limbs, n * sizeof(uint64_t));
 }
 
@@ -293,17 +292,14 @@ static void div_prepare_dividend(uint64_t *U, const uint64_t *x_limbs,
 static void div_knuth(uint64_t *U, const uint64_t *V, size_t n, uint64_t *Q) {
   for (int j = (int)n; j >= 0; j--) {
     /* D3. Оценка q̂. */
-    unsigned __int128 num =
-        ((unsigned __int128)U[j + n] << 64) | U[j + n - 1];
+    unsigned __int128 num = ((unsigned __int128)U[j + n] << 64) | U[j + n - 1];
     unsigned __int128 qhat_wide = num / V[n - 1];
-    uint64_t qhat = (qhat_wide > UINT64_MAX) ? UINT64_MAX
-                                              : (uint64_t)qhat_wide;
+    uint64_t qhat = (qhat_wide > UINT64_MAX) ? UINT64_MAX : (uint64_t)qhat_wide;
     unsigned __int128 rhat = num - (unsigned __int128)qhat * V[n - 1];
 
     /* Уточнение q̂: не более двух итераций. */
     if (n >= 2) {
-      while ((unsigned __int128)qhat * V[n - 2] >
-             (rhat << 64) + U[j + n - 2]) {
+      while ((unsigned __int128)qhat * V[n - 2] > (rhat << 64) + U[j + n - 2]) {
         qhat--;
         rhat += V[n - 1];
         if (rhat >> 64) break;
@@ -400,7 +396,7 @@ int s21_mpf_div_raw(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
   uint32_t mask_bits = prec % 64;
   if (mask_bits != 0) res->limbs[n - 1] &= (1ULL << mask_bits) - 1;
 
-  res->exp  = x->exp - y->exp + (overflow ? 1 : 0);
+  res->exp = x->exp - y->exp + (overflow ? 1 : 0);
   res->sign = x->sign ^ y->sign;
   res->kind = S21_MPF_NORMAL;
   s21_mpf_normalize(res);
