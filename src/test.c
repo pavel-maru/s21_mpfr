@@ -1,6 +1,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "s21_mpf.h"
 #include "s21_mpf_internal.h"
@@ -1737,6 +1738,124 @@ static void test_set_str(void) {
   printf("[ok] set_str\n");
 }
 
+static void test_get_str(void) {
+  char buf[128];
+  int e;
+  s21_mpf_t x;
+
+  s21_mpf_init2(&x, 256);
+
+  /* Целые.  get_str всегда возвращает ровно n_digits цифр,
+     дополняя нулями: 42 при n_digits=10 — это "4200000000",
+     что соответствует 0.42e2. */
+  s21_mpf_set_ui(&x, 42);
+  ASSERT(s21_mpf_get_str(buf, sizeof(buf), &e, 10, 10, &x, S21_MPF_RNDN) == 0,
+         "get_str: 42 rc");
+  ASSERT(strcmp(buf, "4200000000") == 0, "get_str: 42 padded");
+  ASSERT(e == 2, "get_str: 42 exp");
+
+  s21_mpf_set_si(&x, -7);
+  ASSERT(s21_mpf_get_str(buf, sizeof(buf), &e, 10, 5, &x, S21_MPF_RNDN) == 0,
+         "get_str: -7 rc");
+  ASSERT(strcmp(buf, "-70000") == 0, "get_str: -7 padded");
+  ASSERT(e == 1, "get_str: -7 exp");
+
+  /* π, 10 цифр: 3.141592654 (round-up на 10-й) */
+  s21_mpf_pi(&x);
+  ASSERT(s21_mpf_get_str(buf, sizeof(buf), &e, 10, 10, &x, S21_MPF_RNDN) == 0,
+         "get_str: pi rc");
+  ASSERT(strcmp(buf, "3141592654") == 0, "get_str: pi (10 digits)");
+  ASSERT(e == 1, "get_str: pi exp");
+
+  /* Единица, дополняется нулями */
+  s21_mpf_set_ui(&x, 1);
+  ASSERT(s21_mpf_get_str(buf, sizeof(buf), &e, 10, 5, &x, S21_MPF_RNDN) == 0,
+         "get_str: 1 rc");
+  ASSERT(strcmp(buf, "10000") == 0, "get_str: 1 padded");
+  ASSERT(e == 1, "get_str: 1 exp");
+
+  /* Ноль */
+  s21_mpf_set_zero(&x, 0);
+  ASSERT(s21_mpf_get_str(buf, sizeof(buf), &e, 10, 5, &x, S21_MPF_RNDN) == 0,
+         "get_str: zero rc");
+  ASSERT(strcmp(buf, "0") == 0, "get_str: zero");
+  ASSERT(e == 0, "get_str: zero exp");
+
+  s21_mpf_set_zero(&x, 1);
+  ASSERT(s21_mpf_get_str(buf, sizeof(buf), &e, 10, 5, &x, S21_MPF_RNDN) == 0,
+         "get_str: -0 rc");
+  ASSERT(strcmp(buf, "-0") == 0, "get_str: -0");
+
+  /* Спецзначения */
+  s21_mpf_set_nan(&x);
+  ASSERT(s21_mpf_get_str(buf, sizeof(buf), &e, 10, 5, &x, S21_MPF_RNDN) == 0,
+         "get_str: nan rc");
+  ASSERT(strcmp(buf, "nan") == 0, "get_str: nan");
+
+  s21_mpf_set_inf(&x, 0);
+  ASSERT(s21_mpf_get_str(buf, sizeof(buf), &e, 10, 5, &x, S21_MPF_RNDN) == 0,
+         "get_str: inf rc");
+  ASSERT(strcmp(buf, "inf") == 0, "get_str: inf");
+
+  s21_mpf_set_inf(&x, 1);
+  ASSERT(s21_mpf_get_str(buf, sizeof(buf), &e, 10, 5, &x, S21_MPF_RNDN) == 0,
+         "get_str: -inf rc");
+  ASSERT(strcmp(buf, "-inf") == 0, "get_str: -inf");
+
+  /* 9.99 → 10 (n_digits=2, RNDN): перенос через все цифры */
+  s21_mpf_set_d(&x, 9.99);
+  ASSERT(s21_mpf_get_str(buf, sizeof(buf), &e, 10, 2, &x, S21_MPF_RNDN) == 0,
+         "get_str: 9.99 rc");
+  ASSERT(strcmp(buf, "10") == 0, "get_str: 9.99 → 10");
+  ASSERT(e == 2, "get_str: 9.99 exp");
+
+  /* Round-trip: get_str → set_str приблизительно восстанавливает */
+  {
+    s21_mpf_t y, diff, threshold;
+    s21_mpf_init2(&y, 256);
+    s21_mpf_init2(&diff, 256);
+    s21_mpf_init2(&threshold, 256);
+
+    s21_mpf_set_d(&x, 3.14);
+    ASSERT(s21_mpf_get_str(buf, sizeof(buf), &e, 10, 25, &x, S21_MPF_RNDN) == 0,
+           "get_str: 3.14 rc");
+
+    /* Собираем "DDDDe<exp>" вручную: buf до 128 байт, exp до 11
+       знаков + 'e' + '\0' — 192 байта с запасом хватает. */
+    char full[192];
+    size_t len = strlen(buf);
+    memcpy(full, buf, len);
+    int written = snprintf(full + len, sizeof(full) - len, "e%d", e - 25);
+    ASSERT(written > 0 && (size_t)written < sizeof(full) - len,
+           "get_str: round-trip buffer");
+
+    ASSERT(s21_mpf_set_str(&y, full, 10) == 0, "get_str: round-trip set");
+    s21_mpf_sub(&diff, &x, &y);
+    s21_mpf_abs(&diff, &diff);
+    s21_mpf_set_d(&threshold, 1e-15);
+    ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "get_str: 3.14 round-trip");
+
+    s21_mpf_clear(&y);
+    s21_mpf_clear(&diff);
+    s21_mpf_clear(&threshold);
+  }
+
+  /* Ошибки */
+  ASSERT(s21_mpf_get_str(NULL, 10, &e, 10, 5, &x, S21_MPF_RNDN) == -1,
+         "get_str: NULL buf");
+  ASSERT(s21_mpf_get_str(buf, 10, NULL, 10, 5, &x, S21_MPF_RNDN) == -1,
+         "get_str: NULL exp_out");
+  ASSERT(s21_mpf_get_str(buf, 10, &e, 10, 5, NULL, S21_MPF_RNDN) == -1,
+         "get_str: NULL x");
+  ASSERT(s21_mpf_get_str(buf, 10, &e, 16, 5, &x, S21_MPF_RNDN) == -1,
+         "get_str: base 16");
+  ASSERT(s21_mpf_get_str(buf, 2, &e, 10, 5, &x, S21_MPF_RNDN) == -1,
+         "get_str: tiny buffer");
+
+  s21_mpf_clear(&x);
+  printf("[ok] get_str\n");
+}
+
 /* ============================================================
    ULP-метрика для трансцендентных функций.
 
@@ -1886,6 +2005,7 @@ int main(void) {
   test_set_round_nonmult64();
   test_set_prec();
   test_set_str();
+  test_get_str();
   test_ulp_diagnostics();
   printf("=== Все тесты прошли ===\n");
   return 0;

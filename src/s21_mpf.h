@@ -125,6 +125,32 @@ int s21_mpf_atan(s21_mpf_t *res, const s21_mpf_t *x);
 int s21_mpf_asin(s21_mpf_t *res, const s21_mpf_t *x);
 int s21_mpf_acos(s21_mpf_t *res, const s21_mpf_t *x);
 
+/* ============== I/O ============== */
+
+/* Разбор строки в mpf.  Формат: [+-]?(digits[.digits]?|.digits)
+   ([eE][+-]?digits)?  Спецзначения: inf, infinity, nan
+   (регистронезависимо).  base — только 10.  Возвращает 0 при
+   успехе, -1 при ошибке. */
+int s21_mpf_set_str(s21_mpf_t *x, const char *str, int base);
+
+/* Конвертирует x в десятичную строку из n_digits значащих цифр
+   (с округлением по rnd) и записывает в buf.
+
+   Формат: знак (если отрицательное), затем n_digits цифр без
+   десятичной точки.  Позиция точки относительно начала строки
+   цифр возвращается в *exp_out: value ≈ 0.DDDD... × 10^exp_out
+   (конвенция MPFR).
+
+   Спецзначения: "nan", "inf", "-inf", "0", "-0"; для них
+   *exp_out = 0.
+
+   n_digits == 0 → значение по умолчанию (20).
+
+   0 при успехе, -1 при ошибке (NULL, base != 10, буфер мал). */
+int s21_mpf_get_str(char *buf, size_t bufsize, int *exp_out,
+                    int base, uint32_t n_digits,
+                    const s21_mpf_t *x, s21_mpf_rnd_t rnd);
+
 /* ============== Печать ============== */
 
 void s21_mpf_print(const s21_mpf_t *x);

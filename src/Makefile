@@ -25,7 +25,9 @@ SRC = s21_mpf_core.c \
       s21_mpf_cmp.c \
       s21_mpf_arith.c \
       s21_mpf_func.c \
+      s21_mpf_io.c \
       s21_mpf_print.c
+
 OBJ = $(SRC:.c=.o)
 LIB = libs21_mpf.a
 
