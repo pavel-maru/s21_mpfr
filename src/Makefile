@@ -5,6 +5,7 @@
 #   make                     — статическая библиотека libs21_mpf.a
 #   make test                — clean + сборка + запуск unit-тестов
 #   make repl                — интерактивная утилита s21_mpf_repl
+#   make bench               — микробенчмарк операций
 #   make clang-format        — применить clang-format ко всем исходникам
 #   make clang-format-check  — dry-run с --Werror (для CI)
 #   make valgrind            — утечки памяти (memcheck)
@@ -34,8 +35,11 @@ TEST = test_mpf
 REPL_SRC = repl.c
 REPL = s21_mpf_repl
 
+BENCH_SRC = bench.c
+BENCH = s21_mpf_bench
+
 HDRS = s21_mpf.h s21_mpf_internal.h
-FORMAT_FILES = $(SRC) $(HDRS) $(TEST_SRC) $(REPL_SRC)
+FORMAT_FILES = $(SRC) $(HDRS) $(TEST_SRC) $(REPL_SRC) $(BENCH_SRC)
 
 # ============================================================
 # Основное: библиотека
@@ -52,10 +56,7 @@ $(LIB): $(OBJ)
 # ============================================================
 # Тесты
 # ============================================================
-# `test` всегда пересобирает с нуля. Это защищает от ситуации,
-# когда libs21_mpf.a остался от старого дерева с изменённым
-# публичным заголовком: объектники могли не пересобраться,
-# ABI не совпасть, и тесты дадут мусор вместо честного прогона.
+
 test:
 	$(MAKE) clean
 	$(MAKE) $(TEST)
@@ -73,6 +74,16 @@ repl: $(REPL)
 
 $(REPL): $(REPL_SRC) $(LIB)
 	$(CC) $(CFLAGS) -I. $(REPL_SRC) $(LIB) $(LDFLAGS) -o $@
+
+# ============================================================
+# Бенчмарк
+# ============================================================
+
+bench: $(BENCH)
+	./$(BENCH)
+
+$(BENCH): $(BENCH_SRC) $(LIB)
+	$(CC) $(CFLAGS) -I. $(BENCH_SRC) $(LIB) $(LDFLAGS) -o $@
 
 # ============================================================
 # Форматирование
@@ -114,8 +125,8 @@ gcov_report: clean
 # ============================================================
 
 clean:
-	rm -f $(OBJ) $(LIB) $(TEST) $(REPL) *.gcda *.gcno *.info
+	rm -f $(OBJ) $(LIB) $(TEST) $(REPL) $(BENCH) *.gcda *.gcno *.info
 	rm -rf report
 
-.PHONY: all test repl clang-format clang-format-check valgrind asan ubsan \
+.PHONY: all test repl bench clang-format clang-format-check valgrind asan ubsan \
         gcov_report clean

@@ -3,6 +3,7 @@
 *.a
 test_mpf
 s21_mpf_repl
+s21_mpf_bench
 
 # Editor
 .vscode/
