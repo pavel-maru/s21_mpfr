@@ -8,14 +8,18 @@
    prec — точность в битах; по умолчанию 256.  Суффикс 'd' у
    числа означает десятичные цифры: 77d == 256 бит.
 
+   Режимы вывода:
+     dec        — десятичный (через s21_mpf_get_str, 20 цифр)
+     dec <n>    — установить число цифр (1..1000) и переключиться
+     hex        — полная мантисса в hex (через s21_mpf_print)
+
    Специальные команды:
      help, ?            — список функций
      quit, exit, q      — выход
      pi [prec]          — константа π
      prec               — показать текущую точность
      setprec <n>[d]     — изменить точность по умолчанию
-     hex                — переключить вывод на полную мантиссу
-     dec                — переключить вывод на double-приближение
+     hex, dec [n]       — режим вывода
    ============================================================ */
 
 #define _POSIX_C_SOURCE 200809L
@@ -32,8 +36,7 @@
 
 #include "s21_mpf.h"
 
-/* log2(10) и log10(2) с запасом точности, чтобы не тянуть
-   их каждый раз через log(). */
+/* log2(10) и log10(2) с запасом точности. */
 #define S21_LOG2_10 3.3219280948873626
 #define S21_LOG10_2 0.30102999566398120
 
@@ -94,6 +97,7 @@ static const size_t binary_count =
    ------------------------------------------------------------ */
 
 static uint32_t g_default_prec = 256;
+static uint32_t g_dec_digits = 20;
 static bool g_hex_output = false;
 static bool g_interactive = false;
 
@@ -113,11 +117,100 @@ static s21_binary_fn find_binary(const char *name) {
   return NULL;
 }
 
+/* Печать mpf десятичной записью через s21_mpf_get_str.
+   Trailing-нули обрезаются, для очень больших/малых порядков
+   используется научная нотация. */
+static void print_dec(const s21_mpf_t *x, uint32_t n_digits) {
+  if (n_digits == 0) n_digits = 20;
+  if (n_digits > 1000) n_digits = 1000;
+
+  char buf[1024];
+  int e = 0;
+  int rc = s21_mpf_get_str(buf, sizeof(buf), &e, 10, n_digits, x, S21_MPF_RNDN);
+  if (rc != 0) {
+    printf("(get_str error)\n");
+    return;
+  }
+
+  /* Спецзначения: get_str возвращает "nan", "inf", "-inf", "0", "-0". */
+  if (x->kind != S21_MPF_NORMAL) {
+    printf("%s\n", buf);
+    return;
+  }
+
+  const char *p = buf;
+  const char *sign = "";
+  if (*p == '-') {
+    sign = "-";
+    p++;
+  }
+  const char *digits = p;
+
+  /* Для очень больших/малых порядков — научная нотация. */
+  if (e > 30 || e < -10) {
+    int last = (int)n_digits - 1;
+    while (last > 0 && digits[last] == '0') last--;
+    printf("%s%c", sign, digits[0]);
+    if (last > 0) {
+      printf(".");
+      fwrite(digits + 1, 1, (size_t)last, stdout);
+    }
+    printf("e%d\n", e - 1);
+    return;
+  }
+
+  /* Обычная запись.  Буфера 1100 с запасом хватает: знак + до 10
+     ведущих нулей + n_digits цифр + точка + '\0'. */
+  char out[1100];
+  int pos = 0;
+  if (*sign) out[pos++] = '-';
+
+  if (e > 0) {
+    uint32_t int_len = (uint32_t)e;
+    if (int_len <= n_digits) {
+      memcpy(out + pos, digits, int_len);
+      pos += (int)int_len;
+      out[pos++] = '.';
+      memcpy(out + pos, digits + int_len, n_digits - int_len);
+      pos += (int)(n_digits - int_len);
+    } else {
+      memcpy(out + pos, digits, n_digits);
+      pos += (int)n_digits;
+      for (uint32_t i = 0; i < int_len - n_digits; i++) out[pos++] = '0';
+    }
+  } else if (e == 0) {
+    out[pos++] = '0';
+    out[pos++] = '.';
+    memcpy(out + pos, digits, n_digits);
+    pos += (int)n_digits;
+  } else {
+    int zeros = -e;
+    out[pos++] = '0';
+    out[pos++] = '.';
+    for (int i = 0; i < zeros; i++) out[pos++] = '0';
+    memcpy(out + pos, digits, n_digits);
+    pos += (int)n_digits;
+  }
+  out[pos] = '\0';
+
+  /* Обрезка trailing zeros в дробной части.  Если после обрезки
+     в дробной части ничего не осталось — убираем и точку. */
+  char *dot = strchr(out, '.');
+  if (dot) {
+    int q = pos - 1;
+    while (q > (int)(dot - out) && out[q] == '0') q--;
+    if (q == (int)(dot - out)) q--;
+    out[q + 1] = '\0';
+  }
+
+  printf("%s\n", out);
+}
+
 static void print_value(const s21_mpf_t *x) {
   if (g_hex_output)
-    s21_mpf_print(x);      /* полная мантисса, p<exp> [prec=N] */
+    s21_mpf_print(x);
   else
-    s21_mpf_print_d(x);    /* double-приближение, %.17g */
+    print_dec(x, g_dec_digits);
 }
 
 /* Печать приглашения — только в интерактивном режиме. */
@@ -128,15 +221,14 @@ static void prompt(const char *text) {
   }
 }
 
-/* Прочитать строку из stdin. Возвращает false на EOF.
-   Строка сохраняется без trailing newline. */
+/* Прочитать строку из stdin. Возвращает false на EOF. */
 static bool read_line(char *buf, size_t maxlen) {
   if (fgets(buf, (int)maxlen, stdin) == NULL) return false;
   buf[strcspn(buf, "\r\n")] = '\0';
   return true;
 }
 
-/* Разбор double из строки. Возвращает true при успехе. */
+/* Разбор double из строки. */
 static bool parse_double(const char *s, double *out) {
   if (s == NULL || *s == '\0') return false;
   errno = 0;
@@ -149,10 +241,19 @@ static bool parse_double(const char *s, double *out) {
   return true;
 }
 
-/* Разбор точности. Принимает:
-     "256"   — 256 бит (минимум 2)
-     "77d"   — 77 десятичных цифр, что даёт ceil(77·log2 10) = 256 бит
-   Возвращает биты. */
+/* Разбор uint32 без суффикса. Используется для числа цифр в dec. */
+static bool parse_uint(const char *s, uint32_t *out) {
+  if (s == NULL || *s == '\0') return false;
+  errno = 0;
+  char *end = NULL;
+  unsigned long v = strtoul(s, &end, 10);
+  if (end == s || *end != '\0') return false;
+  if (errno == ERANGE || v > UINT32_MAX) return false;
+  *out = (uint32_t)v;
+  return true;
+}
+
+/* Разбор точности. Принимает "256" (бит) или "77d" (десятичных цифр). */
 static bool parse_prec(const char *s, uint32_t *out_bits) {
   if (s == NULL || *s == '\0') return false;
 
@@ -180,7 +281,7 @@ static bool parse_prec(const char *s, uint32_t *out_bits) {
     double b = (double)v * S21_LOG2_10;
     if (b > (double)UINT32_MAX - 2.0) return false;
     bits = (uint32_t)b;
-    if ((double)bits < b) bits++; /* ceil */
+    if ((double)bits < b) bits++;
     if (bits < 2) bits = 2;
   } else {
     if (v < 2) return false;
@@ -197,8 +298,7 @@ static void print_prec_info(uint32_t bits) {
 }
 
 /* ------------------------------------------------------------
-   Ввод параметров с приглашением (используется, когда токенов
-   в основной строке не хватает).
+   Ввод параметров с приглашением.
    ------------------------------------------------------------ */
 
 static bool ask_double(const char *label, double *out) {
@@ -224,7 +324,6 @@ static bool ask_prec(const char *label, uint32_t *out) {
     prompt(label);
     if (!read_line(line, sizeof(line))) return false;
     if (*line == '\0') {
-      /* пустой ввод — оставить значение по умолчанию */
       return true;
     }
     if (!parse_prec(line, out)) {
@@ -247,12 +346,17 @@ static void cmd_help(void) {
   for (size_t i = 0; i < binary_count; i++)
     printf("%s%s", binary_table[i].name, i + 1 < binary_count ? " " : "\n");
   printf("Константы: pi [prec]\n");
-  printf("Прочее:    setprec <n>[d], prec, hex, dec, quit/exit/q, help/?\n");
+  printf("Прочее:    setprec <n>[d], prec, hex, dec [n], quit/exit/q, help/?\n");
   printf("Формат:    <func> [arg1] [arg2] [prec]\n");
   printf("Точность:  число бит (например 256), либо <n>d — десятичных\n");
   printf("           цифр (например 77d == 256 бит).\n");
-  printf("Пример:    sin 1.5 256\n");
-  printf("           sin 1.5 100d\n");
+  printf("Вывод:     dec      — десятичный через s21_mpf_get_str,\n");
+  printf("                      по умолчанию 20 значащих цифр;\n");
+  printf("           dec <n>  — установить число значащих цифр (1..1000);\n");
+  printf("           hex      — полная мантисса в hex.\n");
+  printf("Примеры:   sin 1.5 256\n");
+  printf("           dec 50\n");
+  printf("           pi\n");
 }
 
 static void cmd_pi(const char *prec_tok) {
@@ -424,9 +528,18 @@ static bool process_line(char *line) {
     printf("вывод: hex\n");
     return true;
   }
+
   if (strcmp(cmd, "dec") == 0) {
+    if (n >= 2) {
+      uint32_t d;
+      if (!parse_uint(tok[1], &d) || d < 1 || d > 1000) {
+        fprintf(stderr, "dec: ожидается число 1..1000\n");
+        return true;
+      }
+      g_dec_digits = d;
+    }
     g_hex_output = false;
-    printf("вывод: dec\n");
+    printf("вывод: dec (%u digits)\n", g_dec_digits);
     return true;
   }
 
@@ -461,7 +574,8 @@ int main(void) {
 
   if (g_interactive) {
     printf("s21_mpfr REPL. Команды: help, quit. ");
-    printf("Точность по умолчанию: %u бит.\n", g_default_prec);
+    printf("Точность по умолчанию: %u бит. ", g_default_prec);
+    printf("Вывод: dec (%u digits).\n", g_dec_digits);
   }
 
   char line[512];
