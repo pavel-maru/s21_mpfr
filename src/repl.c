@@ -3,10 +3,15 @@
 
    Формат ввода:
      <func> [arg1] [arg2] [prec]
+     <number>            — то же, что 'show <number>'
 
    Если arg1/arg2/prec пропущены — утилита спросит их отдельно.
    prec — точность в битах; по умолчанию 256.  Суффикс 'd' у
    числа означает десятичные цифры: 77d == 256 бит.
+
+   Аргументы парсятся через s21_mpf_set_str, а не через strtod:
+   никакого ограничения 53 битами, 3.14 — это ровно 3.14, а не
+   ближайшее double.
 
    Режимы вывода:
      dec        — десятичный (через s21_mpf_get_str, 20 цифр)
@@ -19,6 +24,7 @@
      pi [prec]          — константа π
      prec               — показать текущую точность
      setprec <n>[d]     — изменить точность по умолчанию
+     show <number>      — распарсить число и показать
      hex, dec [n]       — режим вывода
    ============================================================ */
 
@@ -47,7 +53,6 @@
 typedef int (*s21_unary_fn)(s21_mpf_t *, const s21_mpf_t *);
 typedef int (*s21_binary_fn)(s21_mpf_t *, const s21_mpf_t *, const s21_mpf_t *);
 
-/* Обёртки для функций, возвращающих void. */
 static int wrap_abs(s21_mpf_t *res, const s21_mpf_t *x) {
   s21_mpf_abs(res, x);
   return 0;
@@ -132,7 +137,6 @@ static void print_dec(const s21_mpf_t *x, uint32_t n_digits) {
     return;
   }
 
-  /* Спецзначения: get_str возвращает "nan", "inf", "-inf", "0", "-0". */
   if (x->kind != S21_MPF_NORMAL) {
     printf("%s\n", buf);
     return;
@@ -146,7 +150,6 @@ static void print_dec(const s21_mpf_t *x, uint32_t n_digits) {
   }
   const char *digits = p;
 
-  /* Для очень больших/малых порядков — научная нотация. */
   if (e > 30 || e < -10) {
     int last = (int)n_digits - 1;
     while (last > 0 && digits[last] == '0') last--;
@@ -159,8 +162,6 @@ static void print_dec(const s21_mpf_t *x, uint32_t n_digits) {
     return;
   }
 
-  /* Обычная запись.  Буфера 1100 с запасом хватает: знак + до 10
-     ведущих нулей + n_digits цифр + точка + '\0'. */
   char out[1100];
   int pos = 0;
   if (*sign) out[pos++] = '-';
@@ -193,8 +194,6 @@ static void print_dec(const s21_mpf_t *x, uint32_t n_digits) {
   }
   out[pos] = '\0';
 
-  /* Обрезка trailing zeros в дробной части.  Если после обрезки
-     в дробной части ничего не осталось — убираем и точку. */
   char *dot = strchr(out, '.');
   if (dot) {
     int q = pos - 1;
@@ -213,7 +212,6 @@ static void print_value(const s21_mpf_t *x) {
     print_dec(x, g_dec_digits);
 }
 
-/* Печать приглашения — только в интерактивном режиме. */
 static void prompt(const char *text) {
   if (g_interactive) {
     fputs(text, stdout);
@@ -221,27 +219,23 @@ static void prompt(const char *text) {
   }
 }
 
-/* Прочитать строку из stdin. Возвращает false на EOF. */
 static bool read_line(char *buf, size_t maxlen) {
   if (fgets(buf, (int)maxlen, stdin) == NULL) return false;
   buf[strcspn(buf, "\r\n")] = '\0';
   return true;
 }
 
-/* Разбор double из строки. */
-static bool parse_double(const char *s, double *out) {
+/* Похоже ли на число: [+-]?[0-9.]... или .digits. */
+static bool is_number_token(const char *s) {
   if (s == NULL || *s == '\0') return false;
-  errno = 0;
-  char *end = NULL;
-  double v = strtod(s, &end);
-  if (end == s || *end != '\0') return false;
-  if (errno == ERANGE && (v == 0.0 || v == 1.0 / 0.0 || v == -1.0 / 0.0))
-    return false;
-  *out = v;
-  return true;
+  const char *p = s;
+  if (*p == '+' || *p == '-') p++;
+  if (*p == '\0') return false;
+  if (*p == '.') p++;
+  return isdigit((unsigned char)*p) != 0;
 }
 
-/* Разбор uint32 без суффикса. Используется для числа цифр в dec. */
+/* Разбор uint32 без суффикса. */
 static bool parse_uint(const char *s, uint32_t *out) {
   if (s == NULL || *s == '\0') return false;
   errno = 0;
@@ -291,43 +285,33 @@ static bool parse_prec(const char *s, uint32_t *out_bits) {
   return true;
 }
 
-/* Показать точность в битах и приблизительное число десятичных цифр. */
 static void print_prec_info(uint32_t bits) {
   uint32_t dec = (uint32_t)((double)bits * S21_LOG10_2);
   printf("prec = %u bits (~%u decimal digits)\n", bits, dec);
 }
 
-/* ------------------------------------------------------------
-   Ввод параметров с приглашением.
-   ------------------------------------------------------------ */
-
-static bool ask_double(const char *label, double *out) {
+/* Промпт точности с возможностью оставить текущую (Enter). */
+static bool ask_prec(const char *label, uint32_t *out) {
   char line[128];
   for (;;) {
     prompt(label);
     if (!read_line(line, sizeof(line))) return false;
-    if (*line == '\0') {
-      fputs("(ожидается число)\n", stderr);
-      continue;
-    }
-    if (!parse_double(line, out)) {
-      fputs("(не удалось разобрать число)\n", stderr);
+    if (*line == '\0') return true;
+    if (!parse_prec(line, out)) {
+      fputs("(ожидается целое >= 2, или <n>d для десятичных цифр)\n", stderr);
       continue;
     }
     return true;
   }
 }
 
-static bool ask_prec(const char *label, uint32_t *out) {
-  char line[128];
+/* Промпт строкового аргумента (число в десятичном виде). */
+static bool ask_arg(const char *label, char *buf, size_t maxlen) {
   for (;;) {
     prompt(label);
-    if (!read_line(line, sizeof(line))) return false;
-    if (*line == '\0') {
-      return true;
-    }
-    if (!parse_prec(line, out)) {
-      fputs("(ожидается целое >= 2, или <n>d для десятичных цифр)\n", stderr);
+    if (!read_line(buf, maxlen)) return false;
+    if (*buf == '\0') {
+      fputs("(ожидается число)\n", stderr);
       continue;
     }
     return true;
@@ -346,17 +330,21 @@ static void cmd_help(void) {
   for (size_t i = 0; i < binary_count; i++)
     printf("%s%s", binary_table[i].name, i + 1 < binary_count ? " " : "\n");
   printf("Константы: pi [prec]\n");
-  printf("Прочее:    setprec <n>[d], prec, hex, dec [n], quit/exit/q, help/?\n");
+  printf("Прочее:    setprec <n>[d], prec, show <num>, hex, dec [n],\n");
+  printf("           quit/exit/q, help/?\n");
   printf("Формат:    <func> [arg1] [arg2] [prec]\n");
+  printf("           <number>          == show <number>\n");
   printf("Точность:  число бит (например 256), либо <n>d — десятичных\n");
   printf("           цифр (например 77d == 256 бит).\n");
+  printf("Аргументы: парсятся через s21_mpf_set_str (без double),\n");
+  printf("           поддерживают '3.14', '1.5e-3', 'inf', 'nan'.\n");
   printf("Вывод:     dec      — десятичный через s21_mpf_get_str,\n");
   printf("                      по умолчанию 20 значащих цифр;\n");
   printf("           dec <n>  — установить число значащих цифр (1..1000);\n");
   printf("           hex      — полная мантисса в hex.\n");
   printf("Примеры:   sin 1.5 256\n");
-  printf("           dec 50\n");
-  printf("           pi\n");
+  printf("           show 3.14159265358979323846\n");
+  printf("           1e-30\n");
 }
 
 static void cmd_pi(const char *prec_tok) {
@@ -384,6 +372,18 @@ static void cmd_setprec(const char *tok) {
   print_prec_info(p);
 }
 
+static void cmd_show(const char *tok) {
+  s21_mpf_t x;
+  s21_mpf_init2(&x, g_default_prec);
+  if (s21_mpf_set_str(&x, tok, 10) != 0) {
+    fprintf(stderr, "show: не удалось разобрать '%s'\n", tok);
+    s21_mpf_clear(&x);
+    return;
+  }
+  print_value(&x);
+  s21_mpf_clear(&x);
+}
+
 static void cmd_unary(const char *name, const char *arg_tok,
                       const char *prec_tok) {
   s21_unary_fn fn = find_unary(name);
@@ -392,16 +392,13 @@ static void cmd_unary(const char *name, const char *arg_tok,
     return;
   }
 
-  double d;
-  if (arg_tok != NULL) {
-    if (!parse_double(arg_tok, &d)) {
-      fprintf(stderr, "%s: некорректный аргумент '%s'\n", name, arg_tok);
-      return;
-    }
-  } else {
+  char arg_buf[256];
+  const char *arg_str = arg_tok;
+  if (arg_str == NULL) {
     char label[64];
     snprintf(label, sizeof(label), "arg (%s): ", name);
-    if (!ask_double(label, &d)) return;
+    if (!ask_arg(label, arg_buf, sizeof(arg_buf))) return;
+    arg_str = arg_buf;
   }
 
   uint32_t prec = g_default_prec;
@@ -419,7 +416,12 @@ static void cmd_unary(const char *name, const char *arg_tok,
   s21_mpf_t x, r;
   s21_mpf_init2(&x, prec);
   s21_mpf_init2(&r, prec);
-  s21_mpf_set_d(&x, d);
+  if (s21_mpf_set_str(&x, arg_str, 10) != 0) {
+    fprintf(stderr, "%s: не удалось разобрать '%s'\n", name, arg_str);
+    s21_mpf_clear(&x);
+    s21_mpf_clear(&r);
+    return;
+  }
   int rc = fn(&r, &x);
   if (rc == 0) print_value(&r);
   else fprintf(stderr, "%s: ошибка\n", name);
@@ -435,26 +437,21 @@ static void cmd_binary(const char *name, const char *a_tok,
     return;
   }
 
-  double da, db;
-  if (a_tok != NULL) {
-    if (!parse_double(a_tok, &da)) {
-      fprintf(stderr, "%s: некорректный первый аргумент '%s'\n", name, a_tok);
-      return;
-    }
-  } else {
+  char a_buf[256], b_buf[256];
+  const char *a_str = a_tok;
+  const char *b_str = b_tok;
+
+  if (a_str == NULL) {
     char label[64];
     snprintf(label, sizeof(label), "arg1 (%s): ", name);
-    if (!ask_double(label, &da)) return;
+    if (!ask_arg(label, a_buf, sizeof(a_buf))) return;
+    a_str = a_buf;
   }
-  if (b_tok != NULL) {
-    if (!parse_double(b_tok, &db)) {
-      fprintf(stderr, "%s: некорректный второй аргумент '%s'\n", name, b_tok);
-      return;
-    }
-  } else {
+  if (b_str == NULL) {
     char label[64];
     snprintf(label, sizeof(label), "arg2 (%s): ", name);
-    if (!ask_double(label, &db)) return;
+    if (!ask_arg(label, b_buf, sizeof(b_buf))) return;
+    b_str = b_buf;
   }
 
   uint32_t prec = g_default_prec;
@@ -473,11 +470,23 @@ static void cmd_binary(const char *name, const char *a_tok,
   s21_mpf_init2(&x, prec);
   s21_mpf_init2(&y, prec);
   s21_mpf_init2(&r, prec);
-  s21_mpf_set_d(&x, da);
-  s21_mpf_set_d(&y, db);
-  int rc = fn(&r, &x, &y);
-  if (rc == 0) print_value(&r);
-  else fprintf(stderr, "%s: ошибка\n", name);
+
+  if (s21_mpf_set_str(&x, a_str, 10) != 0) {
+    fprintf(stderr, "%s: не удалось разобрать '%s'\n", name, a_str);
+    goto cleanup;
+  }
+  if (s21_mpf_set_str(&y, b_str, 10) != 0) {
+    fprintf(stderr, "%s: не удалось разобрать '%s'\n", name, b_str);
+    goto cleanup;
+  }
+
+  {
+    int rc = fn(&r, &x, &y);
+    if (rc == 0) print_value(&r);
+    else fprintf(stderr, "%s: ошибка\n", name);
+  }
+
+cleanup:
   s21_mpf_clear(&x);
   s21_mpf_clear(&y);
   s21_mpf_clear(&r);
@@ -548,6 +557,15 @@ static bool process_line(char *line) {
     return true;
   }
 
+  if (strcmp(cmd, "show") == 0) {
+    if (n < 2) {
+      fprintf(stderr, "show: нужен аргумент\n");
+      return true;
+    }
+    cmd_show(tok[1]);
+    return true;
+  }
+
   if (find_unary(cmd) != NULL) {
     cmd_unary(cmd, n >= 2 ? tok[1] : NULL, n >= 3 ? tok[2] : NULL);
     return true;
@@ -556,6 +574,12 @@ static bool process_line(char *line) {
   if (find_binary(cmd) != NULL) {
     cmd_binary(cmd, n >= 2 ? tok[1] : NULL, n >= 3 ? tok[2] : NULL,
                n >= 4 ? tok[3] : NULL);
+    return true;
+  }
+
+  /* Голое число: '3.14' → 'show 3.14'. */
+  if (is_number_token(cmd)) {
+    cmd_show(cmd);
     return true;
   }
 
