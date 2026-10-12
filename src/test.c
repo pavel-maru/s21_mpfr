@@ -2272,12 +2272,12 @@ static void test_ulp_diagnostics(void) {
       {"acos(0.5)", s21_mpf_acos, 0.5},
       {"pi", wrap_pi, 0.0},
   };
-  const uint32_t Ns[] = {32, 64, 128, 256};
+  const uint32_t Ns[] = {32, 64, 128, 256, 512, 1024, 2048};
   const size_t nc = sizeof(cases) / sizeof(cases[0]);
   const size_t nn = sizeof(Ns) / sizeof(Ns[0]);
 
   printf("  %-11s", "function");
-  for (size_t j = 0; j < nn; j++) printf("  N=%-3u", Ns[j]);
+  for (size_t j = 0; j < nn; j++) printf("  %5u", Ns[j]);
   printf("\n");
 
   for (size_t i = 0; i < nc; i++) {
