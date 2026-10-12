@@ -1613,9 +1613,67 @@ static void test_tan_asin_acos(void) {
   printf("[ok] tan / asin / acos\n");
 }
 
+/* Регрессия: до фикса reduce_2pi терял ~log2(|x|) бит точности.
+   sin(1e30) и sin(1e100) на prec=256 возвращали мусор.
+
+   x парсится один раз на высокой точности — обе функции
+   получают одно и то же число.  Сравниваем sin(x) при
+   res->prec = 256 и при res->prec = 2048 (последнее округляем
+   RNDN до 256).  Оба должны дать один и тот же 256-битный
+   результат. */
+static void test_trig_large_args(void) {
+  const char *args[] = {"1",   "10",    "1000",  "1e10",  "1e30",
+                        "1e50", "1e100", "1e500", "1e2000"};
+  const size_t n = sizeof(args) / sizeof(args[0]);
+
+  for (size_t i = 0; i < n; i++) {
+    s21_mpf_t x, r_lo, r_hi, ref;
+    s21_mpf_init2(&x, 2048);
+    s21_mpf_init2(&r_lo, 256);
+    s21_mpf_init2(&r_hi, 2048);
+    s21_mpf_init2(&ref, 256);
+
+    ASSERT(s21_mpf_set_str(&x, args[i], 10) == 0, "set_str");
+
+    s21_mpf_sin(&r_lo, &x);    /* res->prec = 256 */
+    s21_mpf_sin(&r_hi, &x);    /* res->prec = 2048 */
+    s21_mpf_set(&ref, &r_hi);  /* 2048 → 256, RNDN */
+    ASSERT(s21_mpf_cmp(&r_lo, &ref) == 0, "sin large arg");
+
+    s21_mpf_cos(&r_lo, &x);
+    s21_mpf_cos(&r_hi, &x);
+    s21_mpf_set(&ref, &r_hi);
+    ASSERT(s21_mpf_cmp(&r_lo, &ref) == 0, "cos large arg");
+
+    s21_mpf_clear(&x);
+    s21_mpf_clear(&r_lo);
+    s21_mpf_clear(&r_hi);
+    s21_mpf_clear(&ref);
+  }
+
+  /* Слишком большой аргумент — NaN, а не мусор. */
+  s21_mpf_t x, r;
+  s21_mpf_init2(&x, 2048);
+  s21_mpf_init2(&r, 256);
+  ASSERT(s21_mpf_set_str(&x, "1e50000", 10) == 0, "set_str huge");
+  s21_mpf_sin(&r, &x);
+  ASSERT(s21_mpf_is_nan(&r), "sin(1e50000) = NaN");
+  s21_mpf_cos(&r, &x);
+  ASSERT(s21_mpf_is_nan(&r), "cos(1e50000) = NaN");
+  s21_mpf_tan(&r, &x);
+  ASSERT(s21_mpf_is_nan(&r), "tan(1e50000) = NaN");
+  s21_mpf_clear(&x);
+  s21_mpf_clear(&r);
+
+  printf("[ok] trig large args\n");
+}
+
 static void test_with_pi_api(void) {
   const uint32_t prec = 256;
-  const uint32_t pi_prec = prec + 128;
+  /* Контракт *_with_pi: pi->prec >= res->prec + 128 + E, где
+     E = max(0, x->exp - 1).  Тест использует x до 10 (E = 3),
+     поэтому берём с запасом +16 — покрывает x до 2^16. */
+  const uint32_t pi_prec = prec + 128 + 16;
 
   s21_mpf_t pi, x, r1, r2;
   s21_mpf_init2(&pi, pi_prec);
@@ -2510,6 +2568,7 @@ int main(void) {
       {"sin / cos",                        test_sin_cos},
       {"atan",                             test_atan},
       {"tan / asin / acos",                test_tan_asin_acos},
+      {"trig large args",                  test_trig_large_args},
       {"with_pi API",                      test_with_pi_api},
       {"set_round",                        test_set_round},
       {"set_round non-mult-64",            test_set_round_nonmult64},

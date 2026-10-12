@@ -502,13 +502,32 @@ static void reduce_2pi(s21_mpf_t *r, const s21_mpf_t *a, const s21_mpf_t *pi,
   s21_mpf_clear(&tmp);
 }
 
+/* Сколько «лишних» бит нужно добавить к рабочей точности из-за
+   cancelation при reduce_2pi.  Для типичных |x| < 2 это 0;
+   растёт как log2(|x|). */
+static int64_t trig_extra_bits(const s21_mpf_t *x) {
+  int64_t E = x->exp - 1;
+  return E > 0 ? E : 0;
+}
+
 /* ============================================================
    sin — публичный + _impl
    ============================================================ */
 
 void s21_mpf_sin_impl(s21_mpf_t *res, const s21_mpf_t *x,
                       const s21_mpf_t *pi_in) {
-  uint32_t wp = res->prec + 64;
+  int64_t E = trig_extra_bits(x);
+  if (E > S21_MPF_MAX_ARG_BITS) {
+    s21_mpf_set_nan(res);
+    return;
+  }
+  uint32_t wp = res->prec + 64 + (uint32_t)E;
+
+  if (pi_in != NULL && pi_in->prec < wp) {
+    s21_mpf_set_nan(res);
+    return;
+  }
+
   s21_mpf_t pi_local;
   int pi_owned = 0;
   const s21_mpf_t *pi = mpf_get_pi(pi_in, &pi_local, wp, &pi_owned);
@@ -569,7 +588,18 @@ int s21_mpf_sin(s21_mpf_t *res, const s21_mpf_t *x) {
 
 void s21_mpf_cos_impl(s21_mpf_t *res, const s21_mpf_t *x,
                       const s21_mpf_t *pi_in) {
-  uint32_t wp = res->prec + 64;
+  int64_t E = trig_extra_bits(x);
+  if (E > S21_MPF_MAX_ARG_BITS) {
+    s21_mpf_set_nan(res);
+    return;
+  }
+  uint32_t wp = res->prec + 64 + (uint32_t)E;
+
+  if (pi_in != NULL && pi_in->prec < wp) {
+    s21_mpf_set_nan(res);
+    return;
+  }
+
   s21_mpf_t pi_local;
   int pi_owned = 0;
   const s21_mpf_t *pi = mpf_get_pi(pi_in, &pi_local, wp, &pi_owned);
@@ -667,8 +697,13 @@ int s21_mpf_tan(s21_mpf_t *res, const s21_mpf_t *x) {
     return 0;
   }
 
-  /* sin_impl и cos_impl работают на wp' = res->prec + 128. */
-  uint32_t pi_prec = res->prec + 128;
+  int64_t E = trig_extra_bits(x);
+  if (E > S21_MPF_MAX_ARG_BITS) {
+    s21_mpf_set_nan(res);
+    return 0;
+  }
+  uint32_t pi_prec = res->prec + 128 + (uint32_t)E;
+
   s21_mpf_t pi;
   s21_mpf_init2(&pi, pi_prec);
   s21_mpf_compute_pi(&pi, pi_prec);
@@ -915,7 +950,11 @@ int s21_mpf_acos(s21_mpf_t *res, const s21_mpf_t *x) {
 static int with_pi_check(const s21_mpf_t *res, const s21_mpf_t *x,
                          const s21_mpf_t *pi) {
   if (res == NULL || x == NULL || pi == NULL) return -1;
-  if (pi->prec < res->prec + 128) return -1;
+  if (x->kind != S21_MPF_NORMAL) return 0; /* спецзначения — раньше */
+  int64_t E = trig_extra_bits(x);
+  if (E > S21_MPF_MAX_ARG_BITS) return -1;
+  uint64_t need = (uint64_t)res->prec + 128 + (uint64_t)E;
+  if (pi->prec < need) return -1;
   return 0;
 }
 

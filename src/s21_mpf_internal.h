@@ -61,6 +61,10 @@ void s21_mpf_div_small(s21_mpf_t *x, uint32_t n);
    и буфером для произведения).  512 лимбов = 4 КБ покрывают
    prec до ~8000; выше — один calloc вместо четырёх. */
 #define S21_MPF_MUL_SCRATCH_LIMBS 512
+/* Верхняя граница на «лишние» биты аргумента при тригонометрической
+   reduction.  При |x| ≈ 2^E теряем E бит точности; π нужна на wp+E
+   бит.  За этой границей возвращаем NaN. */
+#define S21_MPF_MAX_ARG_BITS 10000
 
 typedef struct {
   s21_mpf_t mpf;
