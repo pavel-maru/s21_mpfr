@@ -6,32 +6,28 @@
    через CLOCK_MONOTONIC, берём лучший из TRIALS прогонов
    (защита от шума планировщика), печатаем ns/op.
 
-   Число итераций подобрано так, чтобы каждая серия длилась
-   ~10-200 мс: мелкие операции на малых точностях гоняем
-   сотнями тысяч раз, тяжёлые трансцендентные на 4096 битах —
-   единицами.
-
-   Вызовы идут через публичный API — то, что видит пользователь.
-   Время включает аллокации временных объектов внутри операций.
+   Отдельно показаны sin/cos/tan с явно переданной π — они
+   не пересчитывают π на каждый вызов (формула Мэчина,
+   ~1200 членов при prec = 4096), поэтому разница заметна
+   на порядок.
    ============================================================ */
 
 #define _POSIX_C_SOURCE 200809L
 
 #include <locale.h>
-#include <stdio.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <time.h>
 
 #include "s21_mpf.h"
 
 typedef int (*binary_fn_t)(s21_mpf_t *, const s21_mpf_t *, const s21_mpf_t *);
 typedef int (*unary_fn_t)(s21_mpf_t *, const s21_mpf_t *);
+typedef int (*unary_pi_fn_t)(s21_mpf_t *, const s21_mpf_t *,
+                             const s21_mpf_t *);
 
 #define TRIALS 3
 
-/* Аккумулятор: компилятор не может выбросить вычисления, потому
-   что их результат кто-то читает. Само значение неважно — важно,
-   что чтение происходит. */
 static volatile uint64_t g_sink = 0;
 
 static void consume(const s21_mpf_t *x) {
@@ -47,7 +43,7 @@ static double now_ns(void) {
 }
 
 /* ------------------------------------------------------------
-   Бинарные: add / sub / mul / div.
+   Бинарные.
    ------------------------------------------------------------ */
 
 static void bench_binary(const char *name, binary_fn_t fn, uint32_t prec,
@@ -59,7 +55,7 @@ static void bench_binary(const char *name, binary_fn_t fn, uint32_t prec,
   s21_mpf_set_d(&a, 1.5);
   s21_mpf_set_d(&b, 2.5);
 
-  for (int i = 0; i < 5; i++) fn(&r, &a, &b); /* warmup */
+  for (int i = 0; i < 5; i++) fn(&r, &a, &b);
 
   double best = 1e30;
   for (int t = 0; t < TRIALS; t++) {
@@ -77,7 +73,7 @@ static void bench_binary(const char *name, binary_fn_t fn, uint32_t prec,
 }
 
 /* ------------------------------------------------------------
-   Унарные: sqrt / exp / log / sin.
+   Унарные (без π).
    ------------------------------------------------------------ */
 
 static void bench_unary(const char *name, unary_fn_t fn, uint32_t prec,
@@ -87,7 +83,7 @@ static void bench_unary(const char *name, unary_fn_t fn, uint32_t prec,
   s21_mpf_init2(&r, prec);
   s21_mpf_set_d(&a, 1.5);
 
-  for (int i = 0; i < 5; i++) fn(&r, &a); /* warmup */
+  for (int i = 0; i < 5; i++) fn(&r, &a);
 
   double best = 1e30;
   for (int t = 0; t < TRIALS; t++) {
@@ -104,18 +100,46 @@ static void bench_unary(const char *name, unary_fn_t fn, uint32_t prec,
 }
 
 /* ------------------------------------------------------------
-   Число итераций по (prec, operation). Подобрано эмпирически:
-   add занимает ~10x меньше, чем mul, поэтому iters разные.
-   Ориентир — каждая серия от 10 мс до 200 мс.
+   Унарные с явной π.
+   ------------------------------------------------------------ */
+
+static void bench_unary_with_pi(const char *name, unary_pi_fn_t fn,
+                                uint32_t prec, int iters) {
+  s21_mpf_t a, r, pi;
+  s21_mpf_init2(&a, prec);
+  s21_mpf_init2(&r, prec);
+  s21_mpf_init2(&pi, prec + 128);
+  s21_mpf_set_d(&a, 1.5);
+  s21_mpf_pi(&pi);
+
+  for (int i = 0; i < 5; i++) fn(&r, &a, &pi);
+
+  double best = 1e30;
+  for (int t = 0; t < TRIALS; t++) {
+    double t0 = now_ns();
+    for (int i = 0; i < iters; i++) fn(&r, &a, &pi);
+    double dt = (now_ns() - t0) / (double)iters;
+    if (dt < best) best = dt;
+  }
+  consume(&r);
+  printf("  %-5s %6u  %12.3f   %8d iter  (with pi)\n", name, prec, best, iters);
+
+  s21_mpf_clear(&a);
+  s21_mpf_clear(&r);
+  s21_mpf_clear(&pi);
+}
+
+/* ------------------------------------------------------------
+   Число итераций по (prec, operation).
    ------------------------------------------------------------ */
 
 typedef struct {
   uint32_t prec;
-  int addsub;   /* add, sub */
+  int addsub;
   int mul;
   int div;
   int sqrt;
-  int transc;   /* exp, log, sin */
+  int transc;
 } bench_config_t;
 
 static const bench_config_t configs[] = {
@@ -143,7 +167,14 @@ int main(void) {
     bench_unary ("sqrt", s21_mpf_sqrt, c->prec, c->sqrt);
     bench_unary ("exp",  s21_mpf_exp,  c->prec, c->transc);
     bench_unary ("log",  s21_mpf_log,  c->prec, c->transc);
-    bench_unary ("sin",  s21_mpf_sin,  c->prec, c->transc);
+    printf("\n");
+    bench_unary_with_pi("sin", s21_mpf_sin_with_pi, c->prec, c->transc);
+    bench_unary_with_pi("cos", s21_mpf_cos_with_pi, c->prec, c->transc);
+    bench_unary_with_pi("tan", s21_mpf_tan_with_pi, c->prec, c->transc);
+    printf("\n");
+    bench_unary ("sin", s21_mpf_sin, c->prec, c->transc);
+    bench_unary ("cos", s21_mpf_cos, c->prec, c->transc);
+    bench_unary ("tan", s21_mpf_tan, c->prec, c->transc);
     printf("\n");
   }
 

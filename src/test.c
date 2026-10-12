@@ -1302,6 +1302,112 @@ static void test_tan_asin_acos(void) {
   printf("[ok] tan / asin / acos\n");
 }
 
+static void test_with_pi_api(void) {
+  const uint32_t prec = 256;
+  const uint32_t pi_prec = prec + 128;
+
+  s21_mpf_t pi, x, r1, r2;
+  s21_mpf_init2(&pi, pi_prec);
+  s21_mpf_init2(&x, prec);
+  s21_mpf_init2(&r1, prec);
+  s21_mpf_init2(&r2, prec);
+  s21_mpf_pi(&pi);
+
+  /* Согласованность sin / cos / tan на нескольких x. */
+  const double xs[] = {0.5, 1.0, 1.5, 2.0, -0.7, 3.0};
+  for (size_t i = 0; i < sizeof(xs) / sizeof(xs[0]); i++) {
+    s21_mpf_set_d(&x, xs[i]);
+    s21_mpf_sin(&r1, &x);
+    s21_mpf_sin_with_pi(&r2, &x, &pi);
+    ASSERT(s21_mpf_cmp(&r1, &r2) == 0, "sin == sin_with_pi");
+
+    s21_mpf_cos(&r1, &x);
+    s21_mpf_cos_with_pi(&r2, &x, &pi);
+    ASSERT(s21_mpf_cmp(&r1, &r2) == 0, "cos == cos_with_pi");
+
+    s21_mpf_tan(&r1, &x);
+    s21_mpf_tan_with_pi(&r2, &x, &pi);
+    ASSERT(s21_mpf_cmp(&r1, &r2) == 0, "tan == tan_with_pi");
+  }
+
+  /* atan / asin / acos. */
+  s21_mpf_set_d(&x, 0.5);
+  s21_mpf_atan(&r1, &x);
+  s21_mpf_atan_with_pi(&r2, &x, &pi);
+  ASSERT(s21_mpf_cmp(&r1, &r2) == 0, "atan == atan_with_pi");
+
+  s21_mpf_asin(&r1, &x);
+  s21_mpf_asin_with_pi(&r2, &x, &pi);
+  ASSERT(s21_mpf_cmp(&r1, &r2) == 0, "asin == asin_with_pi");
+
+  s21_mpf_acos(&r1, &x);
+  s21_mpf_acos_with_pi(&r2, &x, &pi);
+  ASSERT(s21_mpf_cmp(&r1, &r2) == 0, "acos == acos_with_pi");
+
+  /* atan(10) > 1 — там используется π внутри atan_impl. */
+  s21_mpf_set_ui(&x, 10);
+  s21_mpf_atan(&r1, &x);
+  s21_mpf_atan_with_pi(&r2, &x, &pi);
+  ASSERT(s21_mpf_cmp(&r1, &r2) == 0, "atan(10) == atan_with_pi(10)");
+
+  /* asin(±1) и acos(±1) — там π идёт напрямую. */
+  s21_mpf_set_si(&x, -1);
+  s21_mpf_asin(&r1, &x);
+  s21_mpf_asin_with_pi(&r2, &x, &pi);
+  ASSERT(s21_mpf_cmp(&r1, &r2) == 0, "asin(-1) == asin_with_pi(-1)");
+
+  s21_mpf_acos(&r1, &x);
+  s21_mpf_acos_with_pi(&r2, &x, &pi);
+  ASSERT(s21_mpf_cmp(&r1, &r2) == 0, "acos(-1) == acos_with_pi(-1)");
+
+  /* Ошибка при слишком малой точности π. */
+  s21_mpf_t pi_small;
+  s21_mpf_init2(&pi_small, prec + 64);
+  s21_mpf_pi(&pi_small);
+  s21_mpf_set_d(&x, 1.0);
+  ASSERT(s21_mpf_sin_with_pi(&r2, &x, &pi_small) == -1,
+         "sin_with_pi: pi too small");
+  ASSERT(s21_mpf_cos_with_pi(&r2, &x, &pi_small) == -1,
+         "cos_with_pi: pi too small");
+  ASSERT(s21_mpf_tan_with_pi(&r2, &x, &pi_small) == -1,
+         "tan_with_pi: pi too small");
+  ASSERT(s21_mpf_atan_with_pi(&r2, &x, &pi_small) == -1,
+         "atan_with_pi: pi too small");
+  ASSERT(s21_mpf_asin_with_pi(&r2, &x, &pi_small) == -1,
+         "asin_with_pi: pi too small");
+  ASSERT(s21_mpf_acos_with_pi(&r2, &x, &pi_small) == -1,
+         "acos_with_pi: pi too small");
+  s21_mpf_clear(&pi_small);
+
+  /* NULL. */
+  ASSERT(s21_mpf_sin_with_pi(NULL, &x, &pi) == -1, "sin_with_pi: NULL res");
+  ASSERT(s21_mpf_sin_with_pi(&r2, NULL, &pi) == -1, "sin_with_pi: NULL x");
+  ASSERT(s21_mpf_sin_with_pi(&r2, &x, NULL) == -1, "sin_with_pi: NULL pi");
+
+  /* Спецзначения. */
+  s21_mpf_set_nan(&x);
+  ASSERT(s21_mpf_sin_with_pi(&r2, &x, &pi) == 0 && s21_mpf_is_nan(&r2),
+         "sin_with_pi(NaN) = NaN");
+  s21_mpf_set_inf(&x, 0);
+  ASSERT(s21_mpf_cos_with_pi(&r2, &x, &pi) == 0 && s21_mpf_is_nan(&r2),
+         "cos_with_pi(+inf) = NaN");
+  s21_mpf_set_zero(&x, 1);
+  ASSERT(s21_mpf_sin_with_pi(&r2, &x, &pi) == 0 && s21_mpf_is_zero(&r2) &&
+             r2.sign == 1,
+         "sin_with_pi(-0) = -0");
+
+  /* asin_with_pi(2) = NaN (out of domain). */
+  s21_mpf_set_ui(&x, 2);
+  ASSERT(s21_mpf_asin_with_pi(&r2, &x, &pi) == 0 && s21_mpf_is_nan(&r2),
+         "asin_with_pi(2) = NaN");
+
+  s21_mpf_clear(&pi);
+  s21_mpf_clear(&x);
+  s21_mpf_clear(&r1);
+  s21_mpf_clear(&r2);
+  printf("[ok] with_pi API (sin/cos/tan/atan/asin/acos)\n");
+}
+
 static void test_set_round(void) {
   /* x = 1 + 3·2⁻⁶⁴ при prec=256, приведённое к prec=64.
      Это ровно середина между 1+2⁻⁶³ и 1+2⁻⁶²:
@@ -1973,40 +2079,53 @@ static void test_ulp_diagnostics(void) {
   printf("[ok] ulp diagnostics\n");
 }
 
+typedef struct {
+  const char *name;
+  void (*fn)(void);
+} test_entry_t;
+
 int main(void) {
+  const test_entry_t tests[] = {
+      {"init/clear",                       test_init_clear},
+      {"set_ui",                           test_set_ui},
+      {"set_si",                           test_set_si},
+      {"set_d",                            test_set_d},
+      {"special values",                   test_special},
+      {"precisions 2..512",                test_precision},
+      {"малые precisions",                 test_small_prec},
+      {"round narrow across limb",         test_round_narrow_across_limb_boundary},
+      {"cmp / cmp_abs / equal / integer",  test_cmp},
+      {"cmp mixed prec",                   test_cmp_mixed_prec},
+      {"add / sub / neg / abs",            test_add_sub},
+      {"mul",                              test_mul},
+      {"prec not multiple of 32",          test_nonmult32_prec},
+      {"mul at many precisions",           test_mul_many_prec},
+      {"div",                              test_div},
+      {"div at many precisions",           test_div_many_prec},
+      {"div powers of two",                test_div_powers_of_two},
+      {"null checks",                      test_null_checks},
+      {"bit utilities",                    test_bit_utils},
+      {"sqrt",                             test_sqrt},
+      {"exp",                              test_exp},
+      {"log",                              test_log},
+      {"pi",                               test_pi},
+      {"sin / cos",                        test_sin_cos},
+      {"atan",                             test_atan},
+      {"tan / asin / acos",                test_tan_asin_acos},
+      {"with_pi API",                      test_with_pi_api},
+      {"set_round",                        test_set_round},
+      {"set_round non-mult-64",            test_set_round_nonmult64},
+      {"set_prec",                         test_set_prec},
+      {"set_str",                          test_set_str},
+      {"get_str",                          test_get_str},
+      {"ulp diagnostics",                  test_ulp_diagnostics},
+  };
+  const size_t n = sizeof(tests) / sizeof(tests[0]);
+
   printf("=== s21_mpf: базовые тесты ===\n");
-  test_init_clear();
-  test_set_ui();
-  test_set_si();
-  test_set_d();
-  test_special();
-  test_precision();
-  test_small_prec();
-  test_round_narrow_across_limb_boundary();
-  test_cmp();
-  test_cmp_mixed_prec();
-  test_add_sub();
-  test_mul();
-  test_nonmult32_prec();
-  test_mul_many_prec();
-  test_div();
-  test_div_many_prec();
-  test_div_powers_of_two();
-  test_null_checks();
-  test_bit_utils();
-  test_sqrt();
-  test_exp();
-  test_log();
-  test_pi();
-  test_sin_cos();
-  test_atan();
-  test_tan_asin_acos();
-  test_set_round();
-  test_set_round_nonmult64();
-  test_set_prec();
-  test_set_str();
-  test_get_str();
-  test_ulp_diagnostics();
-  printf("=== Все тесты прошли ===\n");
+  for (size_t i = 0; i < n; i++) {
+    tests[i].fn();
+  }
+  printf("=== Все %zu групп прошли ===\n", n);
   return 0;
 }

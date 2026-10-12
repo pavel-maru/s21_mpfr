@@ -10,22 +10,11 @@
    числа означает десятичные цифры: 77d == 256 бит.
 
    Аргументы парсятся через s21_mpf_set_str, а не через strtod:
-   никакого ограничения 53 битами, 3.14 — это ровно 3.14, а не
-   ближайшее double.
+   никакого ограничения 53 битами, 3.14 — это ровно 3.14.
 
-   Режимы вывода:
-     dec        — десятичный (через s21_mpf_get_str, 20 цифр)
-     dec <n>    — установить число цифр (1..1000) и переключиться
-     hex        — полная мантисса в hex (через s21_mpf_print)
-
-   Специальные команды:
-     help, ?            — список функций
-     quit, exit, q      — выход
-     pi [prec]          — константа π
-     prec               — показать текущую точность
-     setprec <n>[d]     — изменить точность по умолчанию
-     show <number>      — распарсить число и показать
-     hex, dec [n]       — режим вывода
+   Тригонометрия использует кэш π: при первом вызове sin/cos/tan
+   считается π на текущую точность, дальше переиспользуется.
+   Кэш сбрасывается при смене точности.
    ============================================================ */
 
 #define _POSIX_C_SOURCE 200809L
@@ -33,7 +22,6 @@
 #include <ctype.h>
 #include <errno.h>
 #include <locale.h>
-#include <math.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -42,16 +30,67 @@
 
 #include "s21_mpf.h"
 
-/* log2(10) и log10(2) с запасом точности. */
 #define S21_LOG2_10 3.3219280948873626
 #define S21_LOG10_2 0.30102999566398120
 
 /* ------------------------------------------------------------
-   Таблицы функций.
+   Кэш π для тригонометрических функций.
+
+   Хранит π на точности (последний запрошенный prec + 128).
+   При запросе другой точности — пересчитывает.
    ------------------------------------------------------------ */
 
-typedef int (*s21_unary_fn)(s21_mpf_t *, const s21_mpf_t *);
-typedef int (*s21_binary_fn)(s21_mpf_t *, const s21_mpf_t *, const s21_mpf_t *);
+static s21_mpf_t g_pi_cache;
+static uint32_t g_pi_cache_prec = 0;
+static bool g_pi_cache_valid = false;
+
+static void pi_cache_invalidate(void) {
+  if (g_pi_cache_valid) {
+    s21_mpf_clear(&g_pi_cache);
+    g_pi_cache_valid = false;
+    g_pi_cache_prec = 0;
+  }
+}
+
+static const s21_mpf_t *pi_cache_get(uint32_t res_prec) {
+  uint32_t need = res_prec + 128;
+  if (!g_pi_cache_valid || g_pi_cache_prec != need) {
+    pi_cache_invalidate();
+    s21_mpf_init2(&g_pi_cache, need);
+    s21_mpf_pi(&g_pi_cache);
+    g_pi_cache_prec = need;
+    g_pi_cache_valid = true;
+  }
+  return &g_pi_cache;
+}
+
+/* ------------------------------------------------------------
+   Обёртки тригонометрии через кэш π.
+   ------------------------------------------------------------ */
+
+static int wrap_sin(s21_mpf_t *r, const s21_mpf_t *x) {
+  return s21_mpf_sin_with_pi(r, x, pi_cache_get(r->prec));
+}
+
+static int wrap_cos(s21_mpf_t *r, const s21_mpf_t *x) {
+  return s21_mpf_cos_with_pi(r, x, pi_cache_get(r->prec));
+}
+
+static int wrap_tan(s21_mpf_t *r, const s21_mpf_t *x) {
+  return s21_mpf_tan_with_pi(r, x, pi_cache_get(r->prec));
+}
+
+static int wrap_atan(s21_mpf_t *r, const s21_mpf_t *x) {
+  return s21_mpf_atan_with_pi(r, x, pi_cache_get(r->prec));
+}
+
+static int wrap_asin(s21_mpf_t *r, const s21_mpf_t *x) {
+  return s21_mpf_asin_with_pi(r, x, pi_cache_get(r->prec));
+}
+
+static int wrap_acos(s21_mpf_t *r, const s21_mpf_t *x) {
+  return s21_mpf_acos_with_pi(r, x, pi_cache_get(r->prec));
+}
 
 static int wrap_abs(s21_mpf_t *res, const s21_mpf_t *x) {
   s21_mpf_abs(res, x);
@@ -62,6 +101,13 @@ static int wrap_neg(s21_mpf_t *res, const s21_mpf_t *x) {
   s21_mpf_neg(res, x);
   return 0;
 }
+
+/* ------------------------------------------------------------
+   Таблицы функций.
+   ------------------------------------------------------------ */
+
+typedef int (*s21_unary_fn)(s21_mpf_t *, const s21_mpf_t *);
+typedef int (*s21_binary_fn)(s21_mpf_t *, const s21_mpf_t *, const s21_mpf_t *);
 
 typedef struct {
   const char *name;
@@ -74,25 +120,25 @@ typedef struct {
 } binary_entry_t;
 
 static const unary_entry_t unary_table[] = {
-  { "sqrt", s21_mpf_sqrt },
-  { "exp",  s21_mpf_exp  },
-  { "log",  s21_mpf_log  },
-  { "sin",  s21_mpf_sin  },
-  { "cos",  s21_mpf_cos  },
-  { "tan",  s21_mpf_tan  },
-  { "atan", s21_mpf_atan },
-  { "asin", s21_mpf_asin },
-  { "acos", s21_mpf_acos },
-  { "abs",  wrap_abs     },
-  { "neg",  wrap_neg     },
+    { "sqrt", s21_mpf_sqrt },
+    { "exp",  s21_mpf_exp  },
+    { "log",  s21_mpf_log  },
+    { "sin",  wrap_sin     },
+    { "cos",  wrap_cos     },
+    { "tan",  wrap_tan     },
+    { "atan", wrap_atan    },
+    { "asin", wrap_asin    },
+    { "acos", wrap_acos    },
+    { "abs",  wrap_abs     },
+    { "neg",  wrap_neg     },
 };
 static const size_t unary_count = sizeof(unary_table) / sizeof(unary_table[0]);
 
 static const binary_entry_t binary_table[] = {
-  { "add", s21_mpf_add },
-  { "sub", s21_mpf_sub },
-  { "mul", s21_mpf_mul },
-  { "div", s21_mpf_div },
+    { "add", s21_mpf_add },
+    { "sub", s21_mpf_sub },
+    { "mul", s21_mpf_mul },
+    { "div", s21_mpf_div },
 };
 static const size_t binary_count =
     sizeof(binary_table) / sizeof(binary_table[0]);
@@ -122,9 +168,6 @@ static s21_binary_fn find_binary(const char *name) {
   return NULL;
 }
 
-/* Печать mpf десятичной записью через s21_mpf_get_str.
-   Trailing-нули обрезаются, для очень больших/малых порядков
-   используется научная нотация. */
 static void print_dec(const s21_mpf_t *x, uint32_t n_digits) {
   if (n_digits == 0) n_digits = 20;
   if (n_digits > 1000) n_digits = 1000;
@@ -225,7 +268,6 @@ static bool read_line(char *buf, size_t maxlen) {
   return true;
 }
 
-/* Похоже ли на число: [+-]?[0-9.]... или .digits. */
 static bool is_number_token(const char *s) {
   if (s == NULL || *s == '\0') return false;
   const char *p = s;
@@ -235,7 +277,6 @@ static bool is_number_token(const char *s) {
   return isdigit((unsigned char)*p) != 0;
 }
 
-/* Разбор uint32 без суффикса. */
 static bool parse_uint(const char *s, uint32_t *out) {
   if (s == NULL || *s == '\0') return false;
   errno = 0;
@@ -247,7 +288,6 @@ static bool parse_uint(const char *s, uint32_t *out) {
   return true;
 }
 
-/* Разбор точности. Принимает "256" (бит) или "77d" (десятичных цифр). */
 static bool parse_prec(const char *s, uint32_t *out_bits) {
   if (s == NULL || *s == '\0') return false;
 
@@ -290,7 +330,6 @@ static void print_prec_info(uint32_t bits) {
   printf("prec = %u bits (~%u decimal digits)\n", bits, dec);
 }
 
-/* Промпт точности с возможностью оставить текущую (Enter). */
 static bool ask_prec(const char *label, uint32_t *out) {
   char line[128];
   for (;;) {
@@ -305,7 +344,6 @@ static bool ask_prec(const char *label, uint32_t *out) {
   }
 }
 
-/* Промпт строкового аргумента (число в десятичном виде). */
 static bool ask_arg(const char *label, char *buf, size_t maxlen) {
   for (;;) {
     prompt(label);
@@ -342,6 +380,8 @@ static void cmd_help(void) {
   printf("                      по умолчанию 20 значащих цифр;\n");
   printf("           dec <n>  — установить число значащих цифр (1..1000);\n");
   printf("           hex      — полная мантисса в hex.\n");
+  printf("π:         sin/cos/tan/atan/asin/acos кэшируют π на текущую\n");
+  printf("           точность; при setprec кэш сбрасывается.\n");
   printf("Примеры:   sin 1.5 256\n");
   printf("           show 3.14159265358979323846\n");
   printf("           1e-30\n");
@@ -369,6 +409,7 @@ static void cmd_setprec(const char *tok) {
     return;
   }
   g_default_prec = p;
+  pi_cache_invalidate();
   print_prec_info(p);
 }
 
@@ -492,11 +533,6 @@ cleanup:
   s21_mpf_clear(&r);
 }
 
-/* ------------------------------------------------------------
-   Разбор одной строки и диспетчеризация.
-   Возвращает false, если пользователь попросил выйти.
-   ------------------------------------------------------------ */
-
 static bool process_line(char *line) {
   const char *tok[4] = { NULL, NULL, NULL, NULL };
   size_t n = 0;
@@ -577,7 +613,6 @@ static bool process_line(char *line) {
     return true;
   }
 
-  /* Голое число: '3.14' → 'show 3.14'. */
   if (is_number_token(cmd)) {
     cmd_show(cmd);
     return true;
@@ -586,10 +621,6 @@ static bool process_line(char *line) {
   fprintf(stderr, "неизвестная команда '%s' (help — справка)\n", cmd);
   return true;
 }
-
-/* ------------------------------------------------------------
-   main.
-   ------------------------------------------------------------ */
 
 int main(void) {
   setlocale(LC_NUMERIC, "C");
@@ -609,6 +640,7 @@ int main(void) {
     if (!process_line(line)) break;
   }
 
+  pi_cache_invalidate();
   if (g_interactive) printf("\nдо встречи.\n");
   return 0;
 }

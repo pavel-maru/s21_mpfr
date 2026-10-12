@@ -125,6 +125,45 @@ int s21_mpf_atan(s21_mpf_t *res, const s21_mpf_t *x);
 int s21_mpf_asin(s21_mpf_t *res, const s21_mpf_t *x);
 int s21_mpf_acos(s21_mpf_t *res, const s21_mpf_t *x);
 
+/* ============== Тригонометрия с явной π ==============
+
+   Варианты sin / cos / tan / atan / asin / acos, принимающие
+   уже вычисленную π параметром.  Позволяет не пересчитывать π
+   на каждый вызов — при prec = 4096 только на π уходит ~10 мс
+   (формула Мэчина, ~1200 членов ряда).
+
+   Типичное использование:
+
+     s21_mpf_t pi;
+     s21_mpf_init2(&pi, prec + 128);
+     s21_mpf_pi(&pi);
+
+     for (...) {
+       s21_mpf_sin_with_pi(&r, &x, &pi);   // без пересчёта π
+     }
+
+   Контракт: pi->prec >= res->prec + 128.  Меньшая точность π
+   даст -1.  Это единое требование для всех шести функций,
+   потому что tan_with_pi и asin_with_pi внутри проходят две
+   ступени рабочих guard-битов (res->prec + 64, затем ещё +64).
+
+   Спецзначения x (NaN / ±inf / ±0) обрабатываются как в
+   одноимённых функциях без π.
+
+   0 при успехе, -1 при ошибке (NULL, точность π мала). */
+int s21_mpf_sin_with_pi(s21_mpf_t *res, const s21_mpf_t *x,
+                        const s21_mpf_t *pi);
+int s21_mpf_cos_with_pi(s21_mpf_t *res, const s21_mpf_t *x,
+                        const s21_mpf_t *pi);
+int s21_mpf_tan_with_pi(s21_mpf_t *res, const s21_mpf_t *x,
+                        const s21_mpf_t *pi);
+int s21_mpf_atan_with_pi(s21_mpf_t *res, const s21_mpf_t *x,
+                         const s21_mpf_t *pi);
+int s21_mpf_asin_with_pi(s21_mpf_t *res, const s21_mpf_t *x,
+                         const s21_mpf_t *pi);
+int s21_mpf_acos_with_pi(s21_mpf_t *res, const s21_mpf_t *x,
+                         const s21_mpf_t *pi);
+
 /* ============== I/O ============== */
 
 /* Разбор строки в mpf.  Формат: [+-]?(digits[.digits]?|.digits)

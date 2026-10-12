@@ -166,7 +166,6 @@ static void s21_mpf_atan_series(s21_mpf_t *out, const s21_mpf_t *z, uint32_t wp,
    ln2    = 2 · atanh(1/3).
    ============================================================ */
 
-/* Разложение a = y · 2^k с приведением y к [1, 2). */
 static void log_reduce_to_unit(s21_mpf_t *y, int64_t *k, const s21_mpf_t *a) {
   *k = a->exp - 1;
   s21_mpf_set(y, a);
@@ -174,7 +173,6 @@ static void log_reduce_to_unit(s21_mpf_t *y, int64_t *k, const s21_mpf_t *a) {
   s21_mpf_normalize(y);
 }
 
-/* log(y) = 2 · atanh((y-1)/(y+1)) для y ∈ [1, 2). */
 static void log_unit_interval(s21_mpf_t *log_y, const s21_mpf_t *y,
                               uint32_t wp) {
   s21_mpf_t one, num, den, z;
@@ -198,7 +196,6 @@ static void log_unit_interval(s21_mpf_t *log_y, const s21_mpf_t *y,
   s21_mpf_clear(&z);
 }
 
-/* ln2 = 2 · atanh(1/3). */
 static void log_compute_ln2(s21_mpf_t *ln2, uint32_t wp) {
   s21_mpf_t one, three, z;
   s21_mpf_init2(&one, wp);
@@ -366,11 +363,6 @@ int s21_mpf_pi(s21_mpf_t *res) {
 
 /* ============================================================
    Ленивое получение π
-
-   Если pi_in != NULL — возвращаем его, ничего не выделяем.
-   Иначе — при первом запросе выделяем pi_local, считаем π и
-   помечаем *owned = 1. Повторные запросы с уже установленным
-   *owned возвращают ранее вычисленную π без пересчёта.
    ============================================================ */
 
 static const s21_mpf_t *mpf_get_pi(const s21_mpf_t *pi_in, s21_mpf_t *pi_local,
@@ -385,7 +377,6 @@ static const s21_mpf_t *mpf_get_pi(const s21_mpf_t *pi_in, s21_mpf_t *pi_local,
 
 /* ============================================================
    Reduction по модулю 2π: r = a - round(a / 2π) · 2π.
-   Сводит a к (-π, π].  pi должно быть на точности не меньше wp.
    ============================================================ */
 
 static void reduce_2pi(s21_mpf_t *r, const s21_mpf_t *a, const s21_mpf_t *pi,
@@ -538,8 +529,33 @@ int s21_mpf_cos(s21_mpf_t *res, const s21_mpf_t *x) {
 }
 
 /* ============================================================
-   tan — одна π на sin и cos
+   tan — общая часть tan_impl + публичные обёртки
    ============================================================ */
+
+/* Общая часть: pi уже дано, спецзначения уже обработаны. */
+static int tan_impl(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *pi) {
+  uint32_t wp = res->prec + 64;
+  s21_mpf_t s, c, result;
+  s21_mpf_init2(&s, wp);
+  s21_mpf_init2(&c, wp);
+  s21_mpf_init2(&result, wp);
+
+  s21_mpf_sin_impl(&s, x, pi);
+  s21_mpf_cos_impl(&c, x, pi);
+
+  if (s21_mpf_is_zero(&c)) {
+    /* tan(π/2 + kπ) = ±inf, знак берём из sin. */
+    s21_mpf_set_inf(res, s.sign);
+  } else {
+    s21_mpf_div_raw(&result, &s, &c);
+    s21_mpf_set(res, &result);
+  }
+
+  s21_mpf_clear(&s);
+  s21_mpf_clear(&c);
+  s21_mpf_clear(&result);
+  return 0;
+}
 
 int s21_mpf_tan(s21_mpf_t *res, const s21_mpf_t *x) {
   if (res == NULL || x == NULL) return -1;
@@ -552,42 +568,18 @@ int s21_mpf_tan(s21_mpf_t *res, const s21_mpf_t *x) {
     return 0;
   }
 
-  uint32_t wp = res->prec + 64;
-  /* sin_impl и cos_impl работают на wp' = s.prec + 64. Чтобы π
-     хватило на весь расчёт без потери guard-битов, берём её на
-     prec = res->prec + 128. */
+  /* sin_impl и cos_impl работают на wp' = res->prec + 128. */
   uint32_t pi_prec = res->prec + 128;
-
-  s21_mpf_t pi, s, c, result;
+  s21_mpf_t pi;
   s21_mpf_init2(&pi, pi_prec);
-  s21_mpf_init2(&s, wp);
-  s21_mpf_init2(&c, wp);
-  s21_mpf_init2(&result, wp);
-
   s21_mpf_compute_pi(&pi, pi_prec);
-  s21_mpf_sin_impl(&s, x, &pi);
-  s21_mpf_cos_impl(&c, x, &pi);
-
-  if (s21_mpf_is_zero(&c)) {
-    /* tan(π/2 + kπ) = ±inf, знак берём из sin. */
-    s21_mpf_set_inf(res, s.sign);
-  } else {
-    s21_mpf_div_raw(&result, &s, &c);
-    s21_mpf_set(res, &result);
-  }
-
+  int rc = tan_impl(res, x, &pi);
   s21_mpf_clear(&pi);
-  s21_mpf_clear(&s);
-  s21_mpf_clear(&c);
-  s21_mpf_clear(&result);
-  return 0;
+  return rc;
 }
 
 /* ============================================================
    atan — публичный + _impl
-
-   _impl принимает только NORMAL. π нужна только для |x| > 1;
-   для |x| ≤ 1 не вычисляется вообще.
    ============================================================ */
 
 void s21_mpf_atan_impl(s21_mpf_t *res, const s21_mpf_t *x,
@@ -676,9 +668,6 @@ int s21_mpf_atan(s21_mpf_t *res, const s21_mpf_t *x) {
 
 /* ============================================================
    asin — публичный + _impl
-
-   _impl принимает только NORMAL, |x| < 1.  Для |x| = 1 обёртка
-   отдельно возвращает ±π/2.
    ============================================================ */
 
 void s21_mpf_asin_impl(s21_mpf_t *res, const s21_mpf_t *x,
@@ -721,7 +710,6 @@ int s21_mpf_asin(s21_mpf_t *res, const s21_mpf_t *x) {
     return 0;
   }
 
-  /* NORMAL: проверяем |x| ≤ 1. */
   s21_mpf_t one;
   s21_mpf_init2(&one, x->prec);
   s21_mpf_set_ui(&one, 1);
@@ -750,7 +738,7 @@ int s21_mpf_asin(s21_mpf_t *res, const s21_mpf_t *x) {
 }
 
 /* ============================================================
-   acos — одна π на весь вызов
+   acos — публичный, использует asin_impl внутри
    ============================================================ */
 
 int s21_mpf_acos(s21_mpf_t *res, const s21_mpf_t *x) {
@@ -760,7 +748,6 @@ int s21_mpf_acos(s21_mpf_t *res, const s21_mpf_t *x) {
     return 0;
   }
   if (x->kind == S21_MPF_ZERO) {
-    /* acos(0) = π/2 */
     uint32_t wp = res->prec + 64;
     s21_mpf_t pi;
     s21_mpf_init2(&pi, wp);
@@ -772,7 +759,6 @@ int s21_mpf_acos(s21_mpf_t *res, const s21_mpf_t *x) {
     return 0;
   }
 
-  /* NORMAL */
   uint32_t wp = res->prec + 64;
   s21_mpf_t pi, a, one;
   s21_mpf_init2(&pi, wp);
@@ -784,7 +770,6 @@ int s21_mpf_acos(s21_mpf_t *res, const s21_mpf_t *x) {
   if (s21_mpf_cmp(&a, &one) > 0) {
     s21_mpf_set_nan(res);
   } else {
-    /* Одна π на всё: и для ветки |x| = 1, и для передачи в asin_impl. */
     s21_mpf_compute_pi(&pi, wp);
 
     if (s21_mpf_cmp(&a, &one) == 0) {
@@ -798,7 +783,7 @@ int s21_mpf_acos(s21_mpf_t *res, const s21_mpf_t *x) {
       s21_mpf_init2(&pi_2, wp);
       s21_mpf_init2(&result, wp);
 
-      s21_mpf_asin_impl(&as, x, &pi); /* π идёт вниз по цепочке */
+      s21_mpf_asin_impl(&as, x, &pi);
 
       s21_mpf_set(&pi_2, &pi);
       pi_2.exp -= 1;
@@ -815,5 +800,192 @@ int s21_mpf_acos(s21_mpf_t *res, const s21_mpf_t *x) {
   s21_mpf_clear(&pi);
   s21_mpf_clear(&a);
   s21_mpf_clear(&one);
+  return 0;
+}
+
+/* ============================================================
+   Публичный API с явной π.
+
+   Контракт: pi->prec >= res->prec + 128.  Меньшая точность π
+   даёт -1.  Единое требование для всех шести функций, потому
+   что tan_with_pi и asin_with_pi внутри проходят две ступени
+   guard-битов (res->prec + 64, затем ещё +64).
+   ============================================================ */
+
+/* Общая проверка аргументов для _with_pi. */
+static int with_pi_check(const s21_mpf_t *res, const s21_mpf_t *x,
+                         const s21_mpf_t *pi) {
+  if (res == NULL || x == NULL || pi == NULL) return -1;
+  if (pi->prec < res->prec + 128) return -1;
+  return 0;
+}
+
+int s21_mpf_sin_with_pi(s21_mpf_t *res, const s21_mpf_t *x,
+                        const s21_mpf_t *pi) {
+  if (with_pi_check(res, x, pi)) return -1;
+  if (x->kind == S21_MPF_NAN || x->kind == S21_MPF_INF) {
+    s21_mpf_set_nan(res);
+    return 0;
+  }
+  if (x->kind == S21_MPF_ZERO) {
+    s21_mpf_set_zero(res, x->sign);
+    return 0;
+  }
+  s21_mpf_sin_impl(res, x, pi);
+  return 0;
+}
+
+int s21_mpf_cos_with_pi(s21_mpf_t *res, const s21_mpf_t *x,
+                        const s21_mpf_t *pi) {
+  if (with_pi_check(res, x, pi)) return -1;
+  if (x->kind == S21_MPF_NAN || x->kind == S21_MPF_INF) {
+    s21_mpf_set_nan(res);
+    return 0;
+  }
+  if (x->kind == S21_MPF_ZERO) {
+    s21_mpf_set_ui(res, 1);
+    return 0;
+  }
+  s21_mpf_cos_impl(res, x, pi);
+  return 0;
+}
+
+int s21_mpf_tan_with_pi(s21_mpf_t *res, const s21_mpf_t *x,
+                        const s21_mpf_t *pi) {
+  if (with_pi_check(res, x, pi)) return -1;
+  if (x->kind == S21_MPF_NAN || x->kind == S21_MPF_INF) {
+    s21_mpf_set_nan(res);
+    return 0;
+  }
+  if (x->kind == S21_MPF_ZERO) {
+    s21_mpf_set_zero(res, x->sign);
+    return 0;
+  }
+  return tan_impl(res, x, pi);
+}
+
+int s21_mpf_atan_with_pi(s21_mpf_t *res, const s21_mpf_t *x,
+                         const s21_mpf_t *pi) {
+  if (with_pi_check(res, x, pi)) return -1;
+  if (x->kind == S21_MPF_NAN) {
+    s21_mpf_set_nan(res);
+    return 0;
+  }
+  if (x->kind == S21_MPF_ZERO) {
+    s21_mpf_set_zero(res, x->sign);
+    return 0;
+  }
+  if (x->kind == S21_MPF_INF) {
+    /* atan(±inf) = ±π/2, используем переданную π. */
+    uint32_t wp = res->prec + 64;
+    s21_mpf_t pi_2;
+    s21_mpf_init2(&pi_2, wp);
+    s21_mpf_set(&pi_2, pi);
+    pi_2.exp -= 1;
+    s21_mpf_normalize(&pi_2);
+    pi_2.sign = x->sign;
+    s21_mpf_set(res, &pi_2);
+    s21_mpf_clear(&pi_2);
+    return 0;
+  }
+  s21_mpf_atan_impl(res, x, pi);
+  return 0;
+}
+
+int s21_mpf_asin_with_pi(s21_mpf_t *res, const s21_mpf_t *x,
+                         const s21_mpf_t *pi) {
+  if (with_pi_check(res, x, pi)) return -1;
+  if (x->kind == S21_MPF_NAN || x->kind == S21_MPF_INF) {
+    s21_mpf_set_nan(res);
+    return 0;
+  }
+  if (x->kind == S21_MPF_ZERO) {
+    s21_mpf_set_zero(res, x->sign);
+    return 0;
+  }
+
+  s21_mpf_t one;
+  s21_mpf_init2(&one, x->prec);
+  s21_mpf_set_ui(&one, 1);
+  int cmp = s21_mpf_cmp_abs(x, &one);
+  s21_mpf_clear(&one);
+
+  if (cmp > 0) {
+    s21_mpf_set_nan(res);
+    return 0;
+  }
+  if (cmp == 0) {
+    /* x = ±1 → asin = ±π/2 */
+    uint32_t wp = res->prec + 64;
+    s21_mpf_t pi_2;
+    s21_mpf_init2(&pi_2, wp);
+    s21_mpf_set(&pi_2, pi);
+    pi_2.exp -= 1;
+    s21_mpf_normalize(&pi_2);
+    pi_2.sign = x->sign;
+    s21_mpf_set(res, &pi_2);
+    s21_mpf_clear(&pi_2);
+    return 0;
+  }
+  s21_mpf_asin_impl(res, x, pi);
+  return 0;
+}
+
+int s21_mpf_acos_with_pi(s21_mpf_t *res, const s21_mpf_t *x,
+                         const s21_mpf_t *pi) {
+  if (with_pi_check(res, x, pi)) return -1;
+  if (x->kind == S21_MPF_NAN || x->kind == S21_MPF_INF) {
+    s21_mpf_set_nan(res);
+    return 0;
+  }
+
+  uint32_t wp = res->prec + 64;
+  s21_mpf_t a, one, pi_2;
+  s21_mpf_init2(&a, wp);
+  s21_mpf_init2(&one, wp);
+  s21_mpf_init2(&pi_2, wp);
+  s21_mpf_set_ui(&one, 1);
+
+  if (x->kind == S21_MPF_ZERO) {
+    s21_mpf_set(&pi_2, pi);
+    pi_2.exp -= 1;
+    s21_mpf_normalize(&pi_2);
+    s21_mpf_set(res, &pi_2);
+    s21_mpf_clear(&a);
+    s21_mpf_clear(&one);
+    s21_mpf_clear(&pi_2);
+    return 0;
+  }
+
+  s21_mpf_abs(&a, x);
+  int cmp = s21_mpf_cmp(&a, &one);
+
+  if (cmp > 0) {
+    s21_mpf_set_nan(res);
+  } else if (cmp == 0) {
+    if (x->sign)
+      s21_mpf_set(res, pi);
+    else
+      s21_mpf_set_zero(res, 0);
+  } else {
+    s21_mpf_t as, result;
+    s21_mpf_init2(&as, wp);
+    s21_mpf_init2(&result, wp);
+
+    s21_mpf_asin_impl(&as, x, pi);
+
+    s21_mpf_set(&pi_2, pi);
+    pi_2.exp -= 1;
+    s21_mpf_normalize(&pi_2);
+    s21_mpf_sub_raw(&result, &pi_2, &as);
+    s21_mpf_set(res, &result);
+
+    s21_mpf_clear(&as);
+    s21_mpf_clear(&result);
+  }
+
+  s21_mpf_clear(&a);
+  s21_mpf_clear(&one);
+  s21_mpf_clear(&pi_2);
   return 0;
 }
