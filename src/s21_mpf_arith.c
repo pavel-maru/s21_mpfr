@@ -211,36 +211,61 @@ static void s21_mpf_mul_mant(uint64_t *prod, const uint64_t *a,
    guard bits wp = res->prec + 64; произведение умещается в 2*wp
    бит, финальное округление до res->prec — RNDN через set_round.
 
-   NOTE: здесь пока не применена схема со стековыми mpf: temp
-   требует 2*wp лимбов, что не влезает в S21_MPF_STACK_LIMBS при
-   больших prec. Отдельная задача. */
+   xw, yw, temp размещаются в едином скрэтч-буфере:
+     - при малых prec (total <= S21_MPF_MUL_SCRATCH_LIMBS) — стек;
+     - иначе — один calloc вместо трёх init2 + отдельного prod.
+   temp.limbs служит и приёмником mul_mant, отдельный prod
+   не нужен. */
 int s21_mpf_mul_raw(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
   uint32_t wp = res->prec + 64;
+  uint32_t prod_prec = 2 * wp;
+  size_t l_wp = s21_mpf_limbs_for_prec(wp);
+  size_t l_prod = s21_mpf_limbs_for_prec(prod_prec);
+  size_t total = 2 * l_wp + l_prod;
 
-  s21_mpf_t xw, yw, temp;
-  s21_mpf_init2(&xw, wp);
-  s21_mpf_init2(&yw, wp);
-  s21_mpf_init2(&temp, 2 * wp);
+  uint64_t stack_buf[S21_MPF_MUL_SCRATCH_LIMBS];
+  uint64_t *base;
+  int on_heap = 0;
+  if (total <= S21_MPF_MUL_SCRATCH_LIMBS) {
+    memset(stack_buf, 0, total * sizeof(uint64_t));
+    base = stack_buf;
+  } else {
+    base = calloc(total, sizeof(uint64_t));
+    if (base == NULL) return -1;
+    on_heap = 1;
+  }
+
+  /* Собираем три mpf вручную: limbs указывают внутрь base,
+     s21_mpf_init2/clear не вызываются — освобождать нечего. */
+  s21_mpf_t xw = { .limbs = base,
+                   .exp   = 0,
+                   .prec  = wp,
+                   .sign  = 0,
+                   .kind  = S21_MPF_ZERO };
+  s21_mpf_t yw = { .limbs = base + l_wp,
+                   .exp   = 0,
+                   .prec  = wp,
+                   .sign  = 0,
+                   .kind  = S21_MPF_ZERO };
+  s21_mpf_t temp = { .limbs = base + 2 * l_wp,
+                     .exp   = 0,
+                     .prec  = prod_prec,
+                     .sign  = 0,
+                     .kind  = S21_MPF_ZERO };
 
   s21_mpf_set(&xw, x);
   s21_mpf_set(&yw, y);
 
-  size_t wcount = s21_mpf_limbs_for_prec(wp);
-  uint64_t *prod = malloc(2 * wcount * sizeof(uint64_t));
-  s21_mpf_mul_mant(prod, xw.limbs, yw.limbs, wcount);
-  memcpy(temp.limbs, prod, s21_mpf_limbs_for_prec(2 * wp) * sizeof(uint64_t));
-  free(prod);
+  s21_mpf_mul_mant(temp.limbs, xw.limbs, yw.limbs, l_wp);
 
-  temp.exp = xw.exp + yw.exp;
+  temp.exp  = xw.exp + yw.exp;
   temp.sign = xw.sign ^ yw.sign;
   temp.kind = S21_MPF_NORMAL;
   s21_mpf_normalize(&temp);
 
   s21_mpf_set(res, &temp);
 
-  s21_mpf_clear(&temp);
-  s21_mpf_clear(&xw);
-  s21_mpf_clear(&yw);
+  if (on_heap) free(base);
   return 0;
 }
 
@@ -268,10 +293,11 @@ static int mul_special(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
 int s21_mpf_mul(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
   if (s21_mpf_check_binary(res, x, y)) return -1;
 
+  int rc = 0;
   if (!mul_special(res, x, y)) {
-    s21_mpf_mul_raw(res, x, y);
+    rc = s21_mpf_mul_raw(res, x, y);
   }
-  return 0;
+  return rc;
 }
 
 /* ============================================================
@@ -451,6 +477,7 @@ static int div_special(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
 int s21_mpf_div(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
   if (s21_mpf_check_binary(res, x, y)) return -1;
 
+  int rc = 0;
   if (!div_special(res, x, y)) {
     uint32_t wp = res->prec + 64;
     s21_mpf_stack_t xw_s, yw_s, rw_s;
@@ -460,14 +487,14 @@ int s21_mpf_div(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
     s21_mpf_set(&xw_s.mpf, x);
     s21_mpf_set(&yw_s.mpf, y);
 
-    s21_mpf_div_raw(&rw_s.mpf, &xw_s.mpf, &yw_s.mpf);
-    s21_mpf_set(res, &rw_s.mpf);
+    rc = s21_mpf_div_raw(&rw_s.mpf, &xw_s.mpf, &yw_s.mpf);
+    if (rc == 0) s21_mpf_set(res, &rw_s.mpf);
 
     s21_mpf_stack_clear(&xw_s);
     s21_mpf_stack_clear(&yw_s);
     s21_mpf_stack_clear(&rw_s);
   }
-  return 0;
+  return rc;
 }
 
 void s21_mpf_div_small(s21_mpf_t *x, uint32_t n) {
