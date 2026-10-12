@@ -916,6 +916,112 @@ static void test_sqrt(void) {
   printf("[ok] sqrt\n");
 }
 
+static void test_sqrt_edge_cases(void) {
+  s21_mpf_t a, s, expected, sq, diff, threshold, rel;
+
+  s21_mpf_init2(&a, 256);
+  s21_mpf_init2(&s, 256);
+  s21_mpf_init2(&expected, 256);
+  s21_mpf_init2(&sq, 256);
+  s21_mpf_init2(&diff, 256);
+  s21_mpf_init2(&threshold, 256);
+  s21_mpf_init2(&rel, 256);
+
+  /* 1. sqrt(1) = 1 (a.exp = 1, E = 0 — граничный случай seed). */
+  s21_mpf_set_ui(&a, 1);
+  s21_mpf_sqrt(&s, &a);
+  s21_mpf_set_ui(&expected, 1);
+  ASSERT(s21_mpf_cmp(&s, &expected) == 0, "sqrt(1) = 1");
+
+  /* 2. sqrt(2^100) = 2^50 — большой положительный exp. */
+  s21_mpf_set_ui(&a, 1);
+  a.exp = 101;
+  s21_mpf_normalize(&a);
+  s21_mpf_sqrt(&s, &a);
+  s21_mpf_set_ui(&expected, 1);
+  expected.exp = 51;
+  s21_mpf_normalize(&expected);
+  ASSERT(s21_mpf_cmp(&s, &expected) == 0, "sqrt(2^100) = 2^50");
+
+  /* 3. sqrt(2^-100) = 2^-50 — отрицательный exp. */
+  s21_mpf_set_ui(&a, 1);
+  a.exp = -99;
+  s21_mpf_normalize(&a);
+  s21_mpf_sqrt(&s, &a);
+  s21_mpf_set_ui(&expected, 1);
+  expected.exp = -49;
+  s21_mpf_normalize(&expected);
+  ASSERT(s21_mpf_cmp(&s, &expected) == 0, "sqrt(2^-100) = 2^-50");
+
+  /* 4. Маленькая точность: sqrt(4) = 2 при prec=4. */
+  {
+    s21_mpf_t a4, s4, e4;
+    s21_mpf_init2(&a4, 4);
+    s21_mpf_init2(&s4, 4);
+    s21_mpf_init2(&e4, 4);
+    s21_mpf_set_ui(&a4, 4);
+    s21_mpf_sqrt(&s4, &a4);
+    s21_mpf_set_ui(&e4, 2);
+    ASSERT(s21_mpf_cmp(&s4, &e4) == 0, "sqrt(4) = 2 при prec=4");
+    s21_mpf_clear(&a4);
+    s21_mpf_clear(&s4);
+    s21_mpf_clear(&e4);
+  }
+
+  /* 5. a чуть больше 1: sqrt(1 + 2^-200). Seed из double даёт 1.0,
+     Newton сходится к истинному значению за 1-2 итерации. */
+  s21_mpf_set_ui(&a, 1);
+  {
+    s21_mpf_t tiny;
+    s21_mpf_init2(&tiny, 256);
+    s21_mpf_set_ui(&tiny, 1);
+    tiny.exp -= 200;
+    s21_mpf_normalize(&tiny);
+    s21_mpf_add(&a, &a, &tiny);
+    s21_mpf_clear(&tiny);
+  }
+  s21_mpf_sqrt(&s, &a);
+  s21_mpf_mul(&sq, &s, &s);
+  s21_mpf_sub(&diff, &sq, &a);
+  s21_mpf_abs(&diff, &diff);
+  s21_mpf_set_d(&threshold, 1e-55);
+  ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "sqrt(1 + 2^-200)² ≈ 1 + 2^-200");
+
+  /* 6. Огромный exp — seed из double переполнится, сработает fallback.
+     Проверяем через относительную ошибку s²/a. */
+  s21_mpf_set_ui(&a, 5);
+  a.exp = 5000;
+  s21_mpf_normalize(&a);
+  s21_mpf_sqrt(&s, &a);
+  s21_mpf_mul(&sq, &s, &s);
+  s21_mpf_sub(&diff, &sq, &a);
+  s21_mpf_abs(&diff, &diff);
+  s21_mpf_div(&rel, &diff, &a);
+  s21_mpf_set_d(&threshold, 1e-70);
+  ASSERT(s21_mpf_cmp(&rel, &threshold) < 0, "sqrt(5·2^5000)² ≈ 5·2^5000");
+
+  /* 7. Очень маленький exp — тоже fallback. */
+  s21_mpf_set_ui(&a, 5);
+  a.exp = -5000;
+  s21_mpf_normalize(&a);
+  s21_mpf_sqrt(&s, &a);
+  s21_mpf_mul(&sq, &s, &s);
+  s21_mpf_sub(&diff, &sq, &a);
+  s21_mpf_abs(&diff, &diff);
+  s21_mpf_div(&rel, &diff, &a);
+  s21_mpf_set_d(&threshold, 1e-70);
+  ASSERT(s21_mpf_cmp(&rel, &threshold) < 0, "sqrt(5·2^-5000)² ≈ 5·2^-5000");
+
+  s21_mpf_clear(&a);
+  s21_mpf_clear(&s);
+  s21_mpf_clear(&expected);
+  s21_mpf_clear(&sq);
+  s21_mpf_clear(&diff);
+  s21_mpf_clear(&threshold);
+  s21_mpf_clear(&rel);
+  printf("[ok] sqrt edge cases\n");
+}
+
 static void test_exp(void) {
   s21_mpf_t a, e, expected, diff, threshold;
   s21_mpf_init2(&a, 256);
@@ -2106,6 +2212,7 @@ int main(void) {
       {"null checks",                      test_null_checks},
       {"bit utilities",                    test_bit_utils},
       {"sqrt",                             test_sqrt},
+      {"sqrt edge cases",                  test_sqrt_edge_cases},
       {"exp",                              test_exp},
       {"log",                              test_log},
       {"pi",                               test_pi},

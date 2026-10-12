@@ -1,3 +1,4 @@
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -7,6 +8,47 @@
 /* ============================================================
    Квадратный корень
    ============================================================ */
+
+/* Начальное приближение для sqrt из double.
+
+   a — NORMAL и положительное.  seed — mpf (уже инициализирован
+   на нужную точность).
+
+   Возвращает 0 при успехе, -1 если double-представление
+   неприменимо (a.exp слишком экстремален).  При -1 caller
+   использует fallback 2^(a.exp/2 + 1). */
+static int sqrt_seed_from_double(s21_mpf_t *seed, const s21_mpf_t *a) {
+  size_t count = s21_mpf_limbs_for_prec(a->prec);
+  int last = (int)count - 1;
+  while (last > 0 && a->limbs[last] == 0) last--;
+  if (a->limbs[last] == 0) return -1;
+
+  /* top64 — 64 старших бита мантиссы, MSB на позиции 63. */
+  int msb_local = 63 - __builtin_clzll(a->limbs[last]);
+  int shift = 63 - msb_local;
+  uint64_t top64 = a->limbs[last] << shift;
+
+  /* m_norm = top64 / 2^63 ∈ [1, 2). */
+  double m_norm = (double)top64 / 9223372036854775808.0;
+
+  /* a = m_norm · 2^(exp-1).  sqrt(a) = sqrt(m_norm·2^rem) · 2^half,
+     где E = exp-1, half = floor(E/2), rem = E - 2·half ∈ {0,1}. */
+  int64_t E = a->exp - 1;
+  int64_t half = E / 2;
+  if (E < 0 && (E & 1)) half--;
+  int64_t rem = E - 2 * half;
+
+  double scaled = m_norm * (rem ? 2.0 : 1.0);
+  double root = sqrt(scaled);
+
+  if (half > INT32_MAX || half < INT32_MIN) return -1;
+  double result = ldexp(root, (int)half);
+
+  if (!isfinite(result) || result <= 0.0) return -1;
+
+  s21_mpf_set_d(seed, result);
+  return 0;
+}
 
 int s21_mpf_sqrt(s21_mpf_t *res, const s21_mpf_t *x) {
   if (res == NULL || x == NULL) return -1;
@@ -36,10 +78,13 @@ int s21_mpf_sqrt(s21_mpf_t *res, const s21_mpf_t *x) {
 
   s21_mpf_set(&a, x);
 
-  int64_t half_exp = a.exp / 2;
-  s21_mpf_set_ui(&x_cur, 1);
-  x_cur.exp = half_exp + 1;
-  s21_mpf_normalize(&x_cur);
+  if (sqrt_seed_from_double(&x_cur, &a) != 0) {
+    /* Fallback: 2^(a.exp/2 + 1). */
+    int64_t half_exp = a.exp / 2;
+    s21_mpf_set_ui(&x_cur, 1);
+    x_cur.exp = half_exp + 1;
+    s21_mpf_normalize(&x_cur);
+  }
 
   for (int i = 0; i < 200; i++) {
     s21_mpf_div_raw(&tmp, &a, &x_cur);
