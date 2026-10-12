@@ -1160,6 +1160,113 @@ static void test_log(void) {
   printf("[ok] log\n");
 }
 
+static void test_exp_log_extremes(void) {
+  s21_mpf_t a, r, expected, diff, threshold, rel;
+
+  s21_mpf_init2(&a, 256);
+  s21_mpf_init2(&r, 256);
+  s21_mpf_init2(&expected, 256);
+  s21_mpf_init2(&diff, 256);
+  s21_mpf_init2(&threshold, 256);
+  s21_mpf_init2(&rel, 256);
+
+  /* exp с большим аргументом.  ln(exp(a)) == a — точная проверка
+     round-trip, независимая от double-констант. */
+  s21_mpf_set_ui(&a, 100);
+  s21_mpf_exp(&r, &a);
+  s21_mpf_log(&r, &r);
+  s21_mpf_sub(&diff, &r, &a);
+  s21_mpf_abs(&diff, &diff);
+  s21_mpf_div(&rel, &diff, &a);
+  s21_mpf_set_d(&threshold, 1e-60);
+  ASSERT(s21_mpf_cmp(&rel, &threshold) < 0, "log(exp(100)) ≈ 100");
+
+  /* exp с большим отрицательным аргументом. */
+  s21_mpf_set_si(&a, -100);
+  s21_mpf_exp(&r, &a);
+  s21_mpf_log(&r, &r);
+  s21_mpf_sub(&diff, &r, &a);
+  s21_mpf_abs(&diff, &diff);
+  s21_mpf_div(&rel, &diff, &a);
+  ASSERT(s21_mpf_cmp(&rel, &threshold) < 0, "log(exp(-100)) ≈ -100");
+
+  /* log для 10^10: k в log_reduce_to_unit большое.
+     a = 1 × 10 (десять раз) = 10^10.  Старт с 1, не с 10. */
+  s21_mpf_set_ui(&a, 1);
+  {
+    s21_mpf_t ten;
+    s21_mpf_init2(&ten, 256);
+    s21_mpf_set_ui(&ten, 10);
+    for (int i = 0; i < 10; i++) s21_mpf_mul(&a, &a, &ten);
+    s21_mpf_clear(&ten);
+  }
+  s21_mpf_log(&r, &a);
+  s21_mpf_set_d(&expected, 23.025850929940457);
+  s21_mpf_sub(&diff, &r, &expected);
+  s21_mpf_abs(&diff, &diff);
+  s21_mpf_set_d(&threshold, 1e-13);
+  ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "log(10^10) ≈ 23.0259");
+
+  /* log для очень маленького: 10^-10. */
+  s21_mpf_set_ui(&a, 1);
+  {
+    s21_mpf_t ten_pow;
+    s21_mpf_init2(&ten_pow, 256);
+    s21_mpf_set_ui(&ten_pow, 1);
+    s21_mpf_t ten;
+    s21_mpf_init2(&ten, 256);
+    s21_mpf_set_ui(&ten, 10);
+    for (int i = 0; i < 10; i++) s21_mpf_mul(&ten_pow, &ten_pow, &ten);
+    s21_mpf_div(&a, &a, &ten_pow);
+    s21_mpf_clear(&ten);
+    s21_mpf_clear(&ten_pow);
+  }
+  s21_mpf_log(&r, &a);
+  s21_mpf_set_d(&expected, -23.025850929940457);
+  s21_mpf_sub(&diff, &r, &expected);
+  s21_mpf_abs(&diff, &diff);
+  s21_mpf_set_d(&threshold, 1e-13);
+  ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "log(10^-10) ≈ -23.0259");
+
+  /* log(1 + 2^-50) — точно малое, проверяет m=5 reduction. */
+  s21_mpf_set_ui(&a, 1);
+  {
+    s21_mpf_t tiny;
+    s21_mpf_init2(&tiny, 256);
+    s21_mpf_set_ui(&tiny, 1);
+    tiny.exp -= 50;
+    s21_mpf_normalize(&tiny);
+    s21_mpf_add(&a, &a, &tiny);
+    s21_mpf_clear(&tiny);
+  }
+  s21_mpf_log(&r, &a);
+  s21_mpf_set_d(&expected, 8.881784197001252e-16);
+  s21_mpf_sub(&diff, &r, &expected);
+  s21_mpf_abs(&diff, &diff);
+  s21_mpf_set_d(&threshold, 1e-25);
+  ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "log(1 + 2^-50) ≈ 2^-50");
+
+  /* exp(a) * exp(-a) = 1. */
+  s21_mpf_set_d(&a, 3.75);
+  s21_mpf_exp(&r, &a);
+  s21_mpf_neg(&a, &a);
+  s21_mpf_exp(&expected, &a);
+  s21_mpf_mul(&r, &r, &expected);
+  s21_mpf_set_ui(&expected, 1);
+  s21_mpf_sub(&diff, &r, &expected);
+  s21_mpf_abs(&diff, &diff);
+  s21_mpf_set_d(&threshold, 1e-70);
+  ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "exp(3.75)·exp(-3.75) ≈ 1");
+
+  s21_mpf_clear(&a);
+  s21_mpf_clear(&r);
+  s21_mpf_clear(&expected);
+  s21_mpf_clear(&diff);
+  s21_mpf_clear(&threshold);
+  s21_mpf_clear(&rel);
+  printf("[ok] exp / log extremes\n");
+}
+
 static void test_pi(void) {
   s21_mpf_t pi, expected, diff, threshold;
   s21_mpf_init2(&pi, 256);
@@ -2215,6 +2322,7 @@ int main(void) {
       {"sqrt edge cases",                  test_sqrt_edge_cases},
       {"exp",                              test_exp},
       {"log",                              test_log},
+      {"exp/log extremes",                 test_exp_log_extremes},
       {"pi",                               test_pi},
       {"sin / cos",                        test_sin_cos},
       {"atan",                             test_atan},

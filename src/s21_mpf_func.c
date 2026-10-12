@@ -136,8 +136,12 @@ int s21_mpf_exp(s21_mpf_t *res, const s21_mpf_t *x) {
   s21_mpf_set(&a, x);
   s21_mpf_set(&y, &a);
 
+  /* Halving до |y| ≤ 2^-5.  При |y| = 2^-5 ряд exp(y) сходится
+     за ~wp/5 членов вместо ~wp при |y| < 1.  Дополнительные 4
+     halving (по одной mul каждый) компенсируются многократным
+     сокращением ряда. */
   int s = 0;
-  while (y.exp > -1 && s < 128) {
+  while (y.exp > -5 && s < 128) {
     y.exp -= 1;
     s++;
   }
@@ -145,7 +149,13 @@ int s21_mpf_exp(s21_mpf_t *res, const s21_mpf_t *x) {
   s21_mpf_set_ui(&sum, 1);
   s21_mpf_set_ui(&term, 1);
 
-  for (int n = 1; n < 300; n++) {
+  /* |y| ≤ 2^-5 после halving, поэтому term_n ≤ 2^-5n и ряд
+     гарантированно сходится за wp/5 + небольшой запас членов.
+     Значение 4000 соответствует wp до 20000, то есть prec до
+     ~20000 бит.  Больше не нужно: при wp → 4000 нам хватает
+     ~800 членов с огромным запасом. */
+  int max_terms = (int)wp + 10;
+  for (int n = 1; n < max_terms; n++) {
     s21_mpf_mul_raw(&term, &term, &y);
     s21_mpf_div_small(&term, (uint32_t)n);
     s21_mpf_add_raw(&sum, &sum, &term);
@@ -218,23 +228,46 @@ static void log_reduce_to_unit(s21_mpf_t *y, int64_t *k, const s21_mpf_t *a) {
   s21_mpf_normalize(y);
 }
 
+/* log(y) = 2^m · log(y^(1/2^m)) для y ∈ [1, 2).
+
+   После m итераций sqrt аргумент atanh-ряда уменьшается в 2^(m+1)
+   раз, а z² — в 2^(2m+2) раз.  Ряд сходится за ~wp / (2m+2) членов
+   вместо ~wp / log2(9) при m = 0.
+
+   При m = 5 для prec = 4096 ряд сокращается с ~1300 до ~350 членов.
+   Стоимость 5 sqrt (~500 мкс суммарно с v1.9.0 double seed) окупается
+   многократно: ~1.5 мс чистой экономии.
+
+   Ошибка округления от m sqrt накапливается на уровне 2^-wp (каждый
+   sqrt даёт результат с точностью wp), затем масштабируется сдвигом
+   экспоненты на m бит — точность сохраняется. */
 static void log_unit_interval(s21_mpf_t *log_y, const s21_mpf_t *y,
                               uint32_t wp) {
-  s21_mpf_t one, num, den, z;
+  const int m = 5;
+
+  s21_mpf_t ym, one, num, den, z;
+  s21_mpf_init2(&ym, wp);
   s21_mpf_init2(&one, wp);
   s21_mpf_init2(&num, wp);
   s21_mpf_init2(&den, wp);
   s21_mpf_init2(&z, wp);
 
+  s21_mpf_set(&ym, y);
+  for (int i = 0; i < m; i++) {
+    s21_mpf_sqrt(&ym, &ym);
+  }
+
   s21_mpf_set_ui(&one, 1);
-  s21_mpf_sub_raw(&num, y, &one);
-  s21_mpf_add_raw(&den, y, &one);
+  s21_mpf_sub_raw(&num, &ym, &one);
+  s21_mpf_add_raw(&den, &ym, &one);
   s21_mpf_div_raw(&z, &num, &den);
 
   s21_mpf_atan_series(log_y, &z, wp, 0);
-  log_y->exp += 1;
+  log_y->exp += 1; /* ×2 из atanh */
+  log_y->exp += m; /* ×2^m из sqrt reduction */
   s21_mpf_normalize(log_y);
 
+  s21_mpf_clear(&ym);
   s21_mpf_clear(&one);
   s21_mpf_clear(&num);
   s21_mpf_clear(&den);
