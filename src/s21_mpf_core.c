@@ -293,16 +293,8 @@ int s21_mpf_set_round(s21_mpf_t *dst, const s21_mpf_t *src, s21_mpf_rnd_t rnd) {
   return 0;
 }
 
-/* Смена точности на месте, сохраняя значение.
-   Расширение — точно.  Сужение — округление по RNDN.
-   Спецзначения (ZERO / INF / NAN) переносятся как есть.
-
-   Опорный инвариант: exp не зависит от prec и равен «показателю
-   MSB + 1», то есть вес старшего бита мантиссы — это 2^(exp - 1).
-   При смене prec мантисса сдвигается так, чтобы этот вес не
-   изменился, а exp остаётся на месте (кроме случая округления
-   вверх через границу, где exp инкрементируется). */
-int s21_mpf_set_prec(s21_mpf_t *x, uint32_t new_prec) {
+/* Общая часть set_prec / set_prec_round. */
+static int set_prec_impl(s21_mpf_t *x, uint32_t new_prec, s21_mpf_rnd_t rnd) {
   if (x == NULL) return -1;
   if (new_prec < 2) new_prec = 2;
   if (new_prec == x->prec) return 0;
@@ -323,11 +315,11 @@ int s21_mpf_set_prec(s21_mpf_t *x, uint32_t new_prec) {
   int64_t new_exp = x->exp;
 
   if (new_prec > x->prec) {
-    /* Расширение — точно. */
+    /* Расширение — точно при любом rnd. */
     s21_mpf_shift_left_into(new_limbs, new_count, x->limbs, old_count,
                             (int)(new_prec - x->prec));
   } else {
-    /* Сужение — округление RNDN. */
+    /* Сужение — округление по rnd. */
     int delta = (int)(x->prec - new_prec);
     int round_bit =
         (int)((x->limbs[(delta - 1) / 64] >> ((delta - 1) % 64)) & 1ULL);
@@ -338,7 +330,7 @@ int s21_mpf_set_prec(s21_mpf_t *x, uint32_t new_prec) {
     uint32_t mask_bits = new_prec % 64;
     if (mask_bits != 0) new_limbs[new_count - 1] &= (1ULL << mask_bits) - 1;
 
-    if (mpf_round_up(S21_MPF_RNDN, round_bit, sticky, x->sign, new_limbs[0]))
+    if (mpf_round_up(rnd, round_bit, sticky, x->sign, new_limbs[0]))
       mpf_add_one(new_limbs, new_count, new_prec, &new_exp);
   }
 
@@ -349,6 +341,24 @@ int s21_mpf_set_prec(s21_mpf_t *x, uint32_t new_prec) {
   x->exp = new_exp;
   return 0;
 }
+
+/* Смена точности на месте, сохраняя значение.
+   Расширение — точно.  Сужение — округление по RNDN.
+   Спецзначения (ZERO / INF / NAN) переносятся как есть.
+
+   Опорный инвариант: exp не зависит от prec и равен «показателю
+   MSB + 1», то есть вес старшего бита мантиссы — это 2^(exp - 1).
+   При смене prec мантисса сдвигается так, чтобы этот вес не
+   изменился, а exp остаётся на месте (кроме случая округления
+   вверх через границу, где exp инкрементируется). */
+int s21_mpf_set_prec(s21_mpf_t *x, uint32_t new_prec) {
+  return set_prec_impl(x, new_prec, S21_MPF_RNDN);
+}
+
+int s21_mpf_set_prec_round(s21_mpf_t *x, uint32_t new_prec,
+                           s21_mpf_rnd_t rnd) {
+  return set_prec_impl(x, new_prec, rnd);
+} 
 
 /* ============================================================
    Временные mpf на стеке

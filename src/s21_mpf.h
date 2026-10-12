@@ -51,6 +51,11 @@ void s21_mpf_clear(s21_mpf_t *x);
    0 — успех, -1 — ошибка (x == NULL или ошибка аллокации). */
 int s21_mpf_set_prec(s21_mpf_t *x, uint32_t prec);
 
+/* Смена точности на месте с указанным режимом округления.
+   Расширение — точно при любом rnd.  Сужение — rnd.
+   0 — успех, -1 — ошибка. */
+int s21_mpf_set_prec_round(s21_mpf_t *x, uint32_t prec, s21_mpf_rnd_t rnd);
+
 /* ============== Присваивание ============== */
 
 void s21_mpf_set_zero(s21_mpf_t *x, int sign);
@@ -112,6 +117,8 @@ int s21_mpf_log(s21_mpf_t *res, const s21_mpf_t *x);
 /* ============== Константы ============== */
 
 int s21_mpf_pi(s21_mpf_t *res);
+int s21_mpf_ln2(s21_mpf_t *res);
+int s21_mpf_e(s21_mpf_t *res);
 
 /* ============== Тригонометрия: прямые ============== */
 

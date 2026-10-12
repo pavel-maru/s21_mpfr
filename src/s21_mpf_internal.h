@@ -59,7 +59,7 @@ void s21_mpf_div_small(s21_mpf_t *x, uint32_t n);
 #define S21_MPF_STACK_LIMBS 32
 /* Скрэтч-пространство для mul_raw: xw + yw + temp (который служит
    и буфером для произведения).  512 лимбов = 4 КБ покрывают
-   prec до ~5000; выше — один calloc вместо четырёх. */
+   prec до ~8000; выше — один calloc вместо четырёх. */
 #define S21_MPF_MUL_SCRATCH_LIMBS 512
 
 typedef struct {

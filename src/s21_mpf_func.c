@@ -439,6 +439,27 @@ int s21_mpf_pi(s21_mpf_t *res) {
   return 0;
 }
 
+int s21_mpf_ln2(s21_mpf_t *res) {
+  if (res == NULL) return -1;
+  uint32_t wp = res->prec + 64;
+  s21_mpf_t ln2_w;
+  s21_mpf_init2(&ln2_w, wp);
+  log_compute_ln2(&ln2_w, wp);
+  s21_mpf_set(res, &ln2_w);
+  s21_mpf_clear(&ln2_w);
+  return 0;
+}
+
+int s21_mpf_e(s21_mpf_t *res) {
+  if (res == NULL) return -1;
+  s21_mpf_t one;
+  s21_mpf_init2(&one, res->prec);
+  s21_mpf_set_ui(&one, 1);
+  int rc = s21_mpf_exp(res, &one);
+  s21_mpf_clear(&one);
+  return rc;
+}
+
 /* ============================================================
    Ленивое получение π
    ============================================================ */

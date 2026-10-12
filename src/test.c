@@ -78,6 +78,49 @@ static void test_set_d(void) {
   printf("[ok] set_d\n");
 }
 
+static void test_set_d_subnormal(void) {
+  s21_mpf_t x, x53, x256;
+
+  s21_mpf_init2(&x, 256);
+
+  /* Минимальный положительный subnormal double: 2^-1074.
+     После set_d и normalize: mant = 2^255, exp = -1073,
+     value = 2^255 · 2^(-1073 - 256) = 2^-1074. */
+  s21_mpf_set_d(&x, 5e-324);
+  ASSERT(x.kind == S21_MPF_NORMAL, "5e-324 NORMAL");
+  ASSERT(x.exp == -1073, "5e-324 exp == -1073");
+  ASSERT(s21_mpf_msb(&x) == 255, "5e-324 MSB at prec-1");
+  ASSERT(x.sign == 0, "5e-324 positive");
+
+  /* Симметрично для минимального отрицательного. */
+  s21_mpf_set_d(&x, -5e-324);
+  ASSERT(x.kind == S21_MPF_NORMAL, "-5e-324 NORMAL");
+  ASSERT(x.exp == -1073, "-5e-324 exp == -1073");
+  ASSERT(x.sign == 1, "-5e-324 negative");
+
+  s21_mpf_clear(&x);
+
+  /* Subnormal с ненулевой мантиссой: 1e-310.
+     Значение double имеет 53-битную мантиссу, поэтому результат
+     set_d одинаков при prec = 53 и prec = 256. */
+  s21_mpf_init2(&x53, 53);
+  s21_mpf_init2(&x256, 256);
+  s21_mpf_set_d(&x53, 1e-310);
+  s21_mpf_set_d(&x256, 1e-310);
+  ASSERT(x53.kind == S21_MPF_NORMAL && x256.kind == S21_MPF_NORMAL,
+         "1e-310 NORMAL");
+  ASSERT(s21_mpf_cmp(&x53, &x256) == 0, "1e-310 same at prec 53 and 256");
+
+  /* Порядок 2^-1030 — точно subnormal-диапазон. */
+  ASSERT(x256.exp < -1000 && x256.exp > -1100,
+         "1e-310 exp in subnormal range");
+
+  s21_mpf_clear(&x53);
+  s21_mpf_clear(&x256);
+
+  printf("[ok] set_d subnormal\n");
+}
+
 static void test_special(void) {
   s21_mpf_t x;
   s21_mpf_init(&x);
@@ -1290,6 +1333,61 @@ static void test_pi(void) {
   printf("[ok] pi\n");
 }
 
+static void test_const_ln2_e(void) {
+  s21_mpf_t ln2, e, expected, diff, threshold;
+  s21_mpf_t two, log2, one, exp1;
+
+  s21_mpf_init2(&ln2, 256);
+  s21_mpf_init2(&e, 256);
+  s21_mpf_init2(&expected, 256);
+  s21_mpf_init2(&diff, 256);
+  s21_mpf_init2(&threshold, 256);
+  s21_mpf_init2(&two, 256);
+  s21_mpf_init2(&log2, 256);
+  s21_mpf_init2(&one, 256);
+  s21_mpf_init2(&exp1, 256);
+
+  /* ln2 */
+  ASSERT(s21_mpf_ln2(&ln2) == 0, "ln2 rc");
+  s21_mpf_set_d(&expected, 0.693147180559945);
+  s21_mpf_sub(&diff, &ln2, &expected);
+  s21_mpf_abs(&diff, &diff);
+  s21_mpf_set_d(&threshold, 1e-15);
+  ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "ln2 ≈ 0.693147180559945");
+
+  /* e */
+  ASSERT(s21_mpf_e(&e) == 0, "e rc");
+  s21_mpf_set_d(&expected, 2.718281828459045);
+  s21_mpf_sub(&diff, &e, &expected);
+  s21_mpf_abs(&diff, &diff);
+  ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "e ≈ 2.718281828459045");
+
+  /* Согласованность: log(2) == ln2. */
+  s21_mpf_set_ui(&two, 2);
+  s21_mpf_log(&log2, &two);
+  ASSERT(s21_mpf_cmp(&log2, &ln2) == 0, "log(2) == ln2");
+
+  /* Согласованность: exp(1) == e. */
+  s21_mpf_set_ui(&one, 1);
+  s21_mpf_exp(&exp1, &one);
+  ASSERT(s21_mpf_cmp(&exp1, &e) == 0, "exp(1) == e");
+
+  /* NULL. */
+  ASSERT(s21_mpf_ln2(NULL) == -1, "ln2: NULL");
+  ASSERT(s21_mpf_e(NULL) == -1, "e: NULL");
+
+  s21_mpf_clear(&ln2);
+  s21_mpf_clear(&e);
+  s21_mpf_clear(&expected);
+  s21_mpf_clear(&diff);
+  s21_mpf_clear(&threshold);
+  s21_mpf_clear(&two);
+  s21_mpf_clear(&log2);
+  s21_mpf_clear(&one);
+  s21_mpf_clear(&exp1);
+  printf("[ok] constants ln2 / e\n");
+}
+
 static void test_sin_cos(void) {
   s21_mpf_t a, s, c, expected, diff, threshold, pi;
   s21_mpf_init2(&a, 256);
@@ -1925,6 +2023,89 @@ static void test_set_prec(void) {
   printf("[ok] set_prec (in-place, expand/narrow/RNDN, special)\n");
 }
 
+static void test_set_prec_round(void) {
+  /* Та же контрольная точка, что в test_set_round:
+     x = 1 + 3·2⁻⁶⁴, сужение 256 → 64, четыре режима. */
+  s21_mpf_t hi, lo62, lo63, widened;
+
+  s21_mpf_init2(&hi, 256);
+  s21_mpf_init2(&lo62, 64);
+  s21_mpf_init2(&lo63, 64);
+  s21_mpf_init2(&widened, 128);
+
+  s21_mpf_set_ui(&hi, 1);
+  {
+    s21_mpf_t tiny;
+    s21_mpf_init2(&tiny, 256);
+    s21_mpf_set_ui(&tiny, 3);
+    tiny.exp -= 64;
+    s21_mpf_normalize(&tiny);
+    s21_mpf_add(&hi, &hi, &tiny);
+    s21_mpf_clear(&tiny);
+  }
+
+  s21_mpf_set_ui(&lo62, 1);
+  add_pow2(&lo62, 62); /* 1 + 2⁻⁶² */
+  s21_mpf_set_ui(&lo63, 1);
+  add_pow2(&lo63, 63); /* 1 + 2⁻⁶³ */
+
+  /* Четыре режима.  x пересоздаётся перед каждым тестом:
+     set_prec_round меняет x->prec на 64, и повторный вызов с
+     той же целевой точностью сделал бы no-op — тогда результат
+     предыдущего режима остался бы в x. */
+  {
+    s21_mpf_t x;
+    s21_mpf_init2(&x, 256);
+    s21_mpf_set(&x, &hi);
+    ASSERT(s21_mpf_set_prec_round(&x, 64, S21_MPF_RNDN) == 0, "RNDN rc");
+    ASSERT(x.prec == 64, "RNDN prec");
+    ASSERT(s21_mpf_cmp(&x, &lo62) == 0, "RNDN 1 + 3·2⁻⁶⁴ → 1 + 2⁻⁶²");
+    s21_mpf_clear(&x);
+  }
+  {
+    s21_mpf_t x;
+    s21_mpf_init2(&x, 256);
+    s21_mpf_set(&x, &hi);
+    ASSERT(s21_mpf_set_prec_round(&x, 64, S21_MPF_RNDZ) == 0, "RNDZ rc");
+    ASSERT(x.prec == 64, "RNDZ prec");
+    ASSERT(s21_mpf_cmp(&x, &lo63) == 0, "RNDZ 1 + 3·2⁻⁶⁴ → 1 + 2⁻⁶³");
+    s21_mpf_clear(&x);
+  }
+  {
+    s21_mpf_t x;
+    s21_mpf_init2(&x, 256);
+    s21_mpf_set(&x, &hi);
+    ASSERT(s21_mpf_set_prec_round(&x, 64, S21_MPF_RNDU) == 0, "RNDU rc");
+    ASSERT(x.prec == 64, "RNDU prec");
+    ASSERT(s21_mpf_cmp(&x, &lo62) == 0, "RNDU 1 + 3·2⁻⁶⁴ → 1 + 2⁻⁶²");
+    s21_mpf_clear(&x);
+  }
+  {
+    s21_mpf_t x;
+    s21_mpf_init2(&x, 256);
+    s21_mpf_set(&x, &hi);
+    ASSERT(s21_mpf_set_prec_round(&x, 64, S21_MPF_RNDD) == 0, "RNDD rc");
+    ASSERT(x.prec == 64, "RNDD prec");
+    ASSERT(s21_mpf_cmp(&x, &lo63) == 0, "RNDD 1 + 3·2⁻⁶⁴ → 1 + 2⁻⁶³");
+    s21_mpf_clear(&x);
+  }
+
+  /* Расширение — точно при любом rnd. */
+  s21_mpf_set(&widened, &lo62);
+  ASSERT(s21_mpf_set_prec_round(&widened, 256, S21_MPF_RNDU) == 0,
+         "widen rc");
+  ASSERT(widened.prec == 256, "widen prec");
+  ASSERT(s21_mpf_cmp(&widened, &lo62) == 0, "widening is exact (any rnd)");
+
+  ASSERT(s21_mpf_set_prec_round(NULL, 128, S21_MPF_RNDN) == -1, "NULL");
+
+  s21_mpf_clear(&hi);
+  s21_mpf_clear(&lo62);
+  s21_mpf_clear(&lo63);
+  s21_mpf_clear(&widened);
+  printf("[ok] set_prec_round (RNDN/RNDZ/RNDU/RNDD)\n");
+}
+
 static void test_set_str(void) {
   s21_mpf_t x, expected, diff, threshold, pi;
 
@@ -2303,6 +2484,7 @@ int main(void) {
       {"set_ui",                           test_set_ui},
       {"set_si",                           test_set_si},
       {"set_d",                            test_set_d},
+      {"set_d subnormal",                  test_set_d_subnormal},
       {"special values",                   test_special},
       {"precisions 2..512",                test_precision},
       {"малые precisions",                 test_small_prec},
@@ -2324,6 +2506,7 @@ int main(void) {
       {"log",                              test_log},
       {"exp/log extremes",                 test_exp_log_extremes},
       {"pi",                               test_pi},
+      {"constants ln2 / e",                test_const_ln2_e},
       {"sin / cos",                        test_sin_cos},
       {"atan",                             test_atan},
       {"tan / asin / acos",                test_tan_asin_acos},
@@ -2331,6 +2514,7 @@ int main(void) {
       {"set_round",                        test_set_round},
       {"set_round non-mult-64",            test_set_round_nonmult64},
       {"set_prec",                         test_set_prec},
+      {"set_prec_round",                   test_set_prec_round},
       {"set_str",                          test_set_str},
       {"get_str",                          test_get_str},
       {"ulp diagnostics",                  test_ulp_diagnostics},
