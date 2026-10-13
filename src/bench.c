@@ -149,6 +149,13 @@ static const bench_config_t configs[] = {
     {4096,   2000,    500,    50,    30,    5},
 };
 
+/* Обёртка для s21_mpf_pi — публичная функция принимает только
+   res, а bench_unary работает с unary_fn_t (res, x). */
+static int bench_pi_wrapper(s21_mpf_t *res, const s21_mpf_t *x) {
+  (void)x;
+  return s21_mpf_pi(res);
+}
+
 int main(void) {
   setlocale(LC_NUMERIC, "C");
 
@@ -168,6 +175,7 @@ int main(void) {
     bench_unary ("exp",  s21_mpf_exp,  c->prec, c->transc);
     bench_unary ("log",  s21_mpf_log,  c->prec, c->transc);
     printf("\n");
+    bench_unary ("pi",   bench_pi_wrapper, c->prec, c->transc);
     bench_unary_with_pi("sin", s21_mpf_sin_with_pi, c->prec, c->transc);
     bench_unary_with_pi("cos", s21_mpf_cos_with_pi, c->prec, c->transc);
     bench_unary_with_pi("tan", s21_mpf_tan_with_pi, c->prec, c->transc);

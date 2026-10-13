@@ -1460,6 +1460,42 @@ static void test_pi(void) {
   printf("[ok] pi\n");
 }
 
+/* Cross-check: две независимые реализации π должны давать
+   побитово одинаковый результат после RNDN-округления до
+   целевой точности.  Обе работают на prec + 64 внутри,
+   к целевому значению приводим через set_round. */
+static void test_pi_machin_vs_agm(void) {
+  const uint32_t precs[] = {64, 128, 256, 512, 1024, 2048, 4096};
+  const size_t n = sizeof(precs) / sizeof(precs[0]);
+
+  for (size_t i = 0; i < n; i++) {
+    uint32_t p = precs[i];
+    uint32_t wp = p + 64;
+
+    s21_mpf_t pi_a, pi_m, a_r, m_r;
+    s21_mpf_init2(&pi_a, wp);
+    s21_mpf_init2(&pi_m, wp);
+    s21_mpf_init2(&a_r, p);
+    s21_mpf_init2(&m_r, p);
+
+    s21_mpf_compute_pi_agm(&pi_a, wp);
+    s21_mpf_compute_pi_machin(&pi_m, wp);
+
+    s21_mpf_set_round(&a_r, &pi_a, S21_MPF_RNDN);
+    s21_mpf_set_round(&m_r, &pi_m, S21_MPF_RNDN);
+
+    ASSERT(s21_mpf_cmp(&a_r, &m_r) == 0,
+           "AGM pi == Machin pi (rounded to target prec)");
+
+    s21_mpf_clear(&pi_a);
+    s21_mpf_clear(&pi_m);
+    s21_mpf_clear(&a_r);
+    s21_mpf_clear(&m_r);
+  }
+
+  printf("[ok] pi: AGM vs Machin cross-check\n");
+}
+
 static void test_const_ln2_e(void) {
   s21_mpf_t ln2, e, expected, diff, threshold;
   s21_mpf_t two, log2, one, exp1;
@@ -2693,6 +2729,7 @@ int main(void) {
       {"log",                              test_log},
       {"exp/log extremes",                 test_exp_log_extremes},
       {"pi",                               test_pi},
+      {"pi: AGM vs Machin",                test_pi_machin_vs_agm},
       {"constants ln2 / e",                test_const_ln2_e},
       {"sin / cos",                        test_sin_cos},
       {"atan",                             test_atan},

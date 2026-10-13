@@ -393,7 +393,7 @@ static void s21_mpf_round_nearest(s21_mpf_t *res, const s21_mpf_t *x) {
    Константа π (формула Мэчина)
    ============================================================ */
 
-static void s21_mpf_compute_pi(s21_mpf_t *pi, uint32_t wp) {
+void s21_mpf_compute_pi_machin(s21_mpf_t *pi, uint32_t wp) {
   s21_mpf_t one, five, k239, z, a, b, tmp;
   s21_mpf_init2(&one, wp);
   s21_mpf_init2(&five, wp);
@@ -428,12 +428,127 @@ static void s21_mpf_compute_pi(s21_mpf_t *pi, uint32_t wp) {
   s21_mpf_clear(&tmp);
 }
 
+/* ============================================================
+   π через Borwein / Gauss-Legendre AGM.
+
+   Итерация:
+
+     a_{n+1} = (aₙ + bₙ) / 2
+     b_{n+1} = √(aₙ · bₙ)
+     t_{n+1} = tₙ − pₙ · (aₙ − a_{n+1})²
+     p_{n+1} = 2 · pₙ
+
+   с начальными a₀ = 1, b₀ = 1/√2, t₀ = 1/4, p₀ = 1.
+
+   Сходимость квадратичная: число правильных бит удваивается
+   за итерацию.  Для wp = 4096 нужно ~12 итераций; берём
+   log₂(wp) + 3 с запасом.
+
+   Внутренняя точность wp + 64 — чтобы накопленная за 15
+   итераций ошибка округления не проникла в значащую часть
+   после финального приведения к wp. */
+
+void s21_mpf_compute_pi_agm(s21_mpf_t *pi, uint32_t wp) {
+  uint32_t wp_int = wp + 64;
+
+  s21_mpf_t a, b, t, p;
+  s21_mpf_t tmp1, tmp2, tmp3;
+  s21_mpf_t one, two, four;
+  s21_mpf_init2(&a, wp_int);
+  s21_mpf_init2(&b, wp_int);
+  s21_mpf_init2(&t, wp_int);
+  s21_mpf_init2(&p, wp_int);
+  s21_mpf_init2(&tmp1, wp_int);
+  s21_mpf_init2(&tmp2, wp_int);
+  s21_mpf_init2(&tmp3, wp_int);
+  s21_mpf_init2(&one, wp_int);
+  s21_mpf_init2(&two, wp_int);
+  s21_mpf_init2(&four, wp_int);
+
+  s21_mpf_set_ui(&one, 1);
+  s21_mpf_set_ui(&two, 2);
+  s21_mpf_set_ui(&four, 4);
+
+  /* a₀ = 1, p₀ = 1, t₀ = 1/4. */
+  s21_mpf_set(&a, &one);
+  s21_mpf_set(&p, &one);
+  s21_mpf_div_raw(&t, &one, &four);
+
+  /* b₀ = 1/√2 = √(1/2). */
+  s21_mpf_div_raw(&b, &one, &two);
+  s21_mpf_sqrt(&b, &b);
+
+  /* Число итераций: log₂(wp) + 3.  Считаем через сдвиги, без
+     libm-зависимости от формата float. */
+  int max_iter = 3;
+  for (uint32_t q = wp; q > 1; q >>= 1) max_iter++;
+
+  for (int i = 0; i < max_iter; i++) {
+    /* tmp1 = (a + b) / 2 */
+    s21_mpf_add_raw(&tmp1, &a, &b);
+    s21_mpf_div_small(&tmp1, 2);
+
+    /* tmp2 = √(a · b) */
+    s21_mpf_mul_raw(&tmp2, &a, &b);
+    s21_mpf_sqrt(&tmp2, &tmp2);
+
+    /* tmp3 = p · (a − tmp1)², вклад в t.
+       diff = a − tmp1 — точное вычитание на wp_int. */
+    s21_mpf_sub_raw(&tmp3, &a, &tmp1);
+    s21_mpf_mul_raw(&tmp3, &tmp3, &tmp3);
+    s21_mpf_mul_raw(&tmp3, &tmp3, &p);
+
+    s21_mpf_sub_raw(&t, &t, &tmp3);
+
+    s21_mpf_set(&a, &tmp1);
+    s21_mpf_set(&b, &tmp2);
+
+    /* p *= 2 */
+    s21_mpf_add_raw(&p, &p, &p);
+
+    /* Ранний выход, если a и b совпали побитово.  Для типичных
+       wp случается на последней-предпоследней итерации; для
+       больших wp может не сработать, тогда дойдём до max_iter. */
+    if (s21_mpf_cmp(&a, &b) == 0) break;
+  }
+
+  /* π = (a + b)² / (4 · t).
+
+     Считаем на wp_int и только потом сужаем до pi->prec через
+     set_round.  Прямое div_raw в pi сломало бы алгоритм: pi
+     имеет prec = wp, а tmp1 и tmp2 — wp_int = wp + 64; div_raw
+     читает только limbs_for_prec(res->prec) младших лимбов
+     операндов и потерял бы верхние 64 бита мантисс. */
+  s21_mpf_t pi_wide;
+  s21_mpf_init2(&pi_wide, wp_int);
+
+  s21_mpf_add_raw(&tmp1, &a, &b);
+  s21_mpf_mul_raw(&tmp1, &tmp1, &tmp1); /* (a+b)² */
+  s21_mpf_add_raw(&tmp2, &t, &t);        /* 2t */
+  s21_mpf_add_raw(&tmp2, &tmp2, &tmp2);  /* 4t */
+  s21_mpf_div_raw(&pi_wide, &tmp1, &tmp2);
+
+  s21_mpf_set(pi, &pi_wide);  /* сужение wp_int -> wp, RNDN */
+  s21_mpf_clear(&pi_wide);
+
+  s21_mpf_clear(&a);
+  s21_mpf_clear(&b);
+  s21_mpf_clear(&t);
+  s21_mpf_clear(&p);
+  s21_mpf_clear(&tmp1);
+  s21_mpf_clear(&tmp2);
+  s21_mpf_clear(&tmp3);
+  s21_mpf_clear(&one);
+  s21_mpf_clear(&two);
+  s21_mpf_clear(&four);
+}
+
 int s21_mpf_pi(s21_mpf_t *res) {
   if (res == NULL) return -1;
   uint32_t wp = res->prec + 64;
   s21_mpf_t pi_w;
   s21_mpf_init2(&pi_w, wp);
-  s21_mpf_compute_pi(&pi_w, wp);
+  s21_mpf_compute_pi_agm(&pi_w, wp);
   s21_mpf_set(res, &pi_w);
   s21_mpf_clear(&pi_w);
   return 0;
@@ -469,7 +584,7 @@ static const s21_mpf_t *mpf_get_pi(const s21_mpf_t *pi_in, s21_mpf_t *pi_local,
   if (pi_in != NULL) return pi_in;
   if (*owned) return pi_local;
   s21_mpf_init2(pi_local, wp);
-  s21_mpf_compute_pi(pi_local, wp);
+  s21_mpf_compute_pi_agm(pi_local, wp);
   *owned = 1;
   return pi_local;
 }
@@ -706,7 +821,7 @@ int s21_mpf_tan(s21_mpf_t *res, const s21_mpf_t *x) {
 
   s21_mpf_t pi;
   s21_mpf_init2(&pi, pi_prec);
-  s21_mpf_compute_pi(&pi, pi_prec);
+  s21_mpf_compute_pi_agm(&pi, pi_prec);
   int rc = tan_impl(res, x, &pi);
   s21_mpf_clear(&pi);
   return rc;
@@ -788,7 +903,7 @@ int s21_mpf_atan(s21_mpf_t *res, const s21_mpf_t *x) {
     uint32_t wp = res->prec + 64;
     s21_mpf_t pi;
     s21_mpf_init2(&pi, wp);
-    s21_mpf_compute_pi(&pi, wp);
+    s21_mpf_compute_pi_agm(&pi, wp);
     pi.exp -= 1;
     s21_mpf_normalize(&pi);
     pi.sign = x->sign;
@@ -859,7 +974,7 @@ int s21_mpf_asin(s21_mpf_t *res, const s21_mpf_t *x) {
     uint32_t wp = res->prec + 64;
     s21_mpf_t pi;
     s21_mpf_init2(&pi, wp);
-    s21_mpf_compute_pi(&pi, wp);
+    s21_mpf_compute_pi_agm(&pi, wp);
     pi.exp -= 1;
     s21_mpf_normalize(&pi);
     pi.sign = x->sign;
@@ -885,7 +1000,7 @@ int s21_mpf_acos(s21_mpf_t *res, const s21_mpf_t *x) {
     uint32_t wp = res->prec + 64;
     s21_mpf_t pi;
     s21_mpf_init2(&pi, wp);
-    s21_mpf_compute_pi(&pi, wp);
+    s21_mpf_compute_pi_agm(&pi, wp);
     pi.exp -= 1;
     s21_mpf_normalize(&pi);
     s21_mpf_set(res, &pi);
@@ -904,7 +1019,7 @@ int s21_mpf_acos(s21_mpf_t *res, const s21_mpf_t *x) {
   if (s21_mpf_cmp(&a, &one) > 0) {
     s21_mpf_set_nan(res);
   } else {
-    s21_mpf_compute_pi(&pi, wp);
+    s21_mpf_compute_pi_agm(&pi, wp);
 
     if (s21_mpf_cmp(&a, &one) == 0) {
       if (x->sign)
