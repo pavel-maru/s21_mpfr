@@ -29,6 +29,7 @@
 #include <unistd.h>
 
 #include "s21_mpf.h"
+#include "s21_mpf_internal.h"   /* S21_MPF_MAX_ARG_BITS */
 
 #define S21_LOG2_10 3.3219280948873626
 #define S21_LOG10_2 0.30102999566398120
@@ -52,9 +53,22 @@ static void pi_cache_invalidate(void) {
   }
 }
 
-static const s21_mpf_t *pi_cache_get(uint32_t res_prec) {
-  uint32_t need = res_prec + 128;
-  if (!g_pi_cache_valid || g_pi_cache_prec != need) {
+/* Сколько «лишних» бит нужно добавить к точности π из-за cancelation
+   в reduce_2pi.  Для |x| < 2 это 0; растёт как log2(|x|).  То же,
+   что trig_extra_bits в s21_mpf_func.c. */
+static int64_t arg_extra_bits(const s21_mpf_t *x) {
+  if (x->kind != S21_MPF_NORMAL) return 0;
+  int64_t E = x->exp - 1;
+  return E > 0 ? E : 0;
+}
+
+/* Возвращает π на точности не меньше res_prec + 128 + E.
+   При E > S21_MPF_MAX_ARG_BITS возвращает NULL — вызывающий
+   должен откатиться на обычную функцию без явной π. */
+static const s21_mpf_t *pi_cache_get(uint32_t res_prec, int64_t E) {
+  if (E > S21_MPF_MAX_ARG_BITS) return NULL;
+  uint32_t need = res_prec + 128 + (uint32_t)E;
+  if (!g_pi_cache_valid || g_pi_cache_prec < need) {
     pi_cache_invalidate();
     s21_mpf_init2(&g_pi_cache, need);
     s21_mpf_pi(&g_pi_cache);
@@ -69,27 +83,39 @@ static const s21_mpf_t *pi_cache_get(uint32_t res_prec) {
    ------------------------------------------------------------ */
 
 static int wrap_sin(s21_mpf_t *r, const s21_mpf_t *x) {
-  return s21_mpf_sin_with_pi(r, x, pi_cache_get(r->prec));
+  const s21_mpf_t *pi = pi_cache_get(r->prec, arg_extra_bits(x));
+  if (pi == NULL) return s21_mpf_sin(r, x);
+  return s21_mpf_sin_with_pi(r, x, pi);
 }
 
 static int wrap_cos(s21_mpf_t *r, const s21_mpf_t *x) {
-  return s21_mpf_cos_with_pi(r, x, pi_cache_get(r->prec));
+  const s21_mpf_t *pi = pi_cache_get(r->prec, arg_extra_bits(x));
+  if (pi == NULL) return s21_mpf_cos(r, x);
+  return s21_mpf_cos_with_pi(r, x, pi);
 }
 
 static int wrap_tan(s21_mpf_t *r, const s21_mpf_t *x) {
-  return s21_mpf_tan_with_pi(r, x, pi_cache_get(r->prec));
+  const s21_mpf_t *pi = pi_cache_get(r->prec, arg_extra_bits(x));
+  if (pi == NULL) return s21_mpf_tan(r, x);
+  return s21_mpf_tan_with_pi(r, x, pi);
 }
 
 static int wrap_atan(s21_mpf_t *r, const s21_mpf_t *x) {
-  return s21_mpf_atan_with_pi(r, x, pi_cache_get(r->prec));
+  const s21_mpf_t *pi = pi_cache_get(r->prec, arg_extra_bits(x));
+  if (pi == NULL) return s21_mpf_atan(r, x);
+  return s21_mpf_atan_with_pi(r, x, pi);
 }
 
 static int wrap_asin(s21_mpf_t *r, const s21_mpf_t *x) {
-  return s21_mpf_asin_with_pi(r, x, pi_cache_get(r->prec));
+  const s21_mpf_t *pi = pi_cache_get(r->prec, arg_extra_bits(x));
+  if (pi == NULL) return s21_mpf_asin(r, x);
+  return s21_mpf_asin_with_pi(r, x, pi);
 }
 
 static int wrap_acos(s21_mpf_t *r, const s21_mpf_t *x) {
-  return s21_mpf_acos_with_pi(r, x, pi_cache_get(r->prec));
+  const s21_mpf_t *pi = pi_cache_get(r->prec, arg_extra_bits(x));
+  if (pi == NULL) return s21_mpf_acos(r, x);
+  return s21_mpf_acos_with_pi(r, x, pi);
 }
 
 static int wrap_abs(s21_mpf_t *res, const s21_mpf_t *x) {
