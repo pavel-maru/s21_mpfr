@@ -185,26 +185,176 @@ int s21_mpf_sub(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
    Умножение с округлением RNDN
    ============================================================ */
 
-static void s21_mpf_mul_mant(uint64_t *prod, const uint64_t *a,
-                             const uint64_t *b, size_t count) {
-  memset(prod, 0, 2 * count * sizeof(uint64_t));
+/* ------------------------------------------------------------
+   Умножение мантисс: школьный алгоритм как base case для
+   Карацубы.
 
-  for (size_t i = 0; i < count; i++) {
+   prod = a * b, a и b по n лимбов, результат — 2n лимбов.
+   prod должен быть уже выделен под 2n лимбов.
+   ------------------------------------------------------------ */
+
+void s21_mpf_mul_mant_schoolbook(uint64_t *prod, const uint64_t *a,
+                                 const uint64_t *b, size_t n) {
+  memset(prod, 0, 2 * n * sizeof(uint64_t));
+
+  for (size_t i = 0; i < n; i++) {
     uint64_t carry = 0;
-    for (size_t j = 0; j < count; j++) {
+    for (size_t j = 0; j < n; j++) {
       unsigned __int128 p =
           (unsigned __int128)a[i] * b[j] + prod[i + j] + carry;
       prod[i + j] = (uint64_t)p;
       carry = (uint64_t)(p >> 64);
     }
-    size_t k = i + count;
-    while (carry != 0 && k < 2 * count) {
+    size_t k = i + n;
+    while (carry != 0 && k < 2 * n) {
       unsigned __int128 s = (unsigned __int128)prod[k] + carry;
       prod[k] = (uint64_t)s;
       carry = (uint64_t)(s >> 64);
       k++;
     }
   }
+}
+
+/* ------------------------------------------------------------
+   Карацуба.
+
+   Для a = a0 + a1·B^h, b = b0 + b1·B^h, где h = n/2 (floor),
+   B = 2^64:
+     z0 = a0·b0
+     z2 = a1·b1
+     z1 = (a0 + a1)·(b0 + b1) - z0 - z2
+     a·b = z0 + z1·B^h + z2·B^(2h)
+
+   Три подпроизведения размера ~n/2 вместо четырёх в schoolbook.
+   Рекурсия идёт до S21_MPF_KARATSUBA_THRESHOLD, ниже — schoolbook.
+
+   scratch — единый пул для текущего уровня и всей рекурсии.
+   На каждом уровне фиксированный layout:
+
+     [0 .. 2h)              z0
+     [2h .. 2h + 2m)        z2
+     [2h+2m .. 2h+2m+2m+2)  z1 = s·t
+     [.. + m+1)             s = a0 + a1
+     [.. + m+1)             t = b0 + b1
+     [..  ]                 sub — вложенная рекурсия
+
+   где h = n/2 (floor), m = n - h.  Верхняя оценка полного
+   размера scratch: ~8n лимбов, с запасом аллоцируем 10n + 256.
+   ------------------------------------------------------------ */
+
+/* dst (len limbs) += src (src_len limbs) на позиции offset.
+   Carry распространяется вверх по dst. */
+static void add_shifted(uint64_t *dst, const uint64_t *src, size_t src_len,
+                        size_t offset, size_t dst_len) {
+  uint64_t carry = 0;
+  size_t i = 0;
+  for (; i < src_len && offset + i < dst_len; i++) {
+    uint64_t t1, t2, c1, c2;
+    c1 = __builtin_add_overflow(dst[offset + i], src[i], &t1);
+    c2 = __builtin_add_overflow(t1, carry, &t2);
+    dst[offset + i] = t2;
+    carry = c1 | c2;
+  }
+  size_t j = offset + i;
+  while (carry && j < dst_len) {
+    dst[j]++;
+    if (dst[j] != 0) carry = 0;
+    j++;
+  }
+}
+
+/* a (a_len limbs) -= b (b_len limbs, дополняется нулями до a_len).
+   Borrow распространяется вверх. */
+static void sub_in_place_padded(uint64_t *a, const uint64_t *b, size_t b_len,
+                                size_t a_len) {
+  uint64_t borrow = 0;
+  for (size_t i = 0; i < a_len; i++) {
+    uint64_t bb = (i < b_len) ? b[i] : 0;
+    uint64_t t1, t2, b1, b2;
+    b1 = __builtin_sub_overflow(a[i], bb, &t1);
+    b2 = __builtin_sub_overflow(t1, borrow, &t2);
+    a[i] = t2;
+    borrow = b1 | b2;
+  }
+}
+
+/* s (m+1 limbs) = a0 (h limbs) + a1 (m limbs).  h <= m. */
+static void add_split(uint64_t *s, const uint64_t *a0, size_t h,
+                      const uint64_t *a1, size_t m) {
+  uint64_t carry = 0;
+  for (size_t i = 0; i < h; i++) {
+    uint64_t t1, t2, c1, c2;
+    c1 = __builtin_add_overflow(a0[i], a1[i], &t1);
+    c2 = __builtin_add_overflow(t1, carry, &t2);
+    s[i] = t2;
+    carry = c1 | c2;
+  }
+  for (size_t i = h; i < m; i++) {
+    uint64_t t1, c1;
+    c1 = __builtin_add_overflow(a1[i], carry, &t1);
+    s[i] = t1;
+    carry = c1;
+  }
+  s[m] = carry;
+}
+
+static void mul_mant_rec(uint64_t *prod, const uint64_t *a, const uint64_t *b,
+                         size_t n, uint64_t *scratch) {
+  if (n < S21_MPF_KARATSUBA_THRESHOLD) {
+    s21_mpf_mul_mant_schoolbook(prod, a, b, n);
+    return;
+  }
+
+  size_t h = n / 2;
+  size_t m = n - h; /* m == h или m == h+1 */
+
+  uint64_t *z0  = scratch;
+  uint64_t *z2  = z0 + 2 * h;
+  uint64_t *z1  = z2 + 2 * m;
+  uint64_t *s   = z1 + 2 * m + 2;
+  uint64_t *t   = s + (m + 1);
+  uint64_t *sub = t + (m + 1);
+
+  add_split(s, a, h, a + h, m);
+  add_split(t, b, h, b + h, m);
+
+  mul_mant_rec(z0, a, b, h, sub);
+  mul_mant_rec(z2, a + h, b + h, m, sub);
+  mul_mant_rec(z1, s, t, m + 1, sub);
+
+  /* z1 -= z0, z1 -= z2 (z0, z2 дополняются нулями до 2m+2). */
+  sub_in_place_padded(z1, z0, 2 * h, 2 * m + 2);
+  sub_in_place_padded(z1, z2, 2 * m, 2 * m + 2);
+
+  /* Сборка: prod = z0 + z1·B^h + z2·B^(2h). */
+  memset(prod, 0, 2 * n * sizeof(uint64_t));
+  add_shifted(prod, z0, 2 * h, 0, 2 * n);
+  add_shifted(prod, z1, 2 * m + 2, h, 2 * n);
+  add_shifted(prod, z2, 2 * m, 2 * h, 2 * n);
+}
+
+/* Точка входа.  Экспонирована в заголовке как _karatsuba — имя
+   подчёркивает, что ниже порога функция автоматически переходит
+   на schoolbook, а вызов из production-кода (mul_raw) идёт
+   именно сюда. */
+void s21_mpf_mul_mant_karatsuba(uint64_t *prod, const uint64_t *a,
+                                const uint64_t *b, size_t n) {
+  if (n < S21_MPF_KARATSUBA_THRESHOLD) {
+    s21_mpf_mul_mant_schoolbook(prod, a, b, n);
+    return;
+  }
+
+  /* Верхняя оценка полного scratch ~8n; берём 10n + 256. */
+  size_t scratch_len = 10 * n + 256;
+  uint64_t *scratch = malloc(scratch_len * sizeof(uint64_t));
+  if (scratch == NULL) {
+    /* Fallback на schoolbook при OOM. */
+    s21_mpf_mul_mant_schoolbook(prod, a, b, n);
+    return;
+  }
+
+  mul_mant_rec(prod, a, b, n, scratch);
+  free(scratch);
 }
 
 /* Операнды NORMAL, все одинаковой точности. Внутри — рабочие
@@ -256,7 +406,7 @@ int s21_mpf_mul_raw(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
   s21_mpf_set(&xw, x);
   s21_mpf_set(&yw, y);
 
-  s21_mpf_mul_mant(temp.limbs, xw.limbs, yw.limbs, l_wp);
+  s21_mpf_mul_mant_karatsuba(temp.limbs, xw.limbs, yw.limbs, l_wp);
 
   temp.exp  = xw.exp + yw.exp;
   temp.sign = xw.sign ^ yw.sign;

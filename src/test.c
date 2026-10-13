@@ -602,6 +602,133 @@ static void test_mul_many_prec(void) {
   printf("[ok] mul at many precisions\n");
 }
 
+static void test_mul_large_prec(void) {
+  /* Проверяет Карацубу на больших точностях через замкнутые формы
+     (2^k - 1)^2 и (2^k - 1)(2^k + 1).  При prec >= ~2048 внутри
+     mul_mant работает Карацуба; при меньших — schoolbook.
+     Обе формулы дают точный результат, влезающий в prec. */
+  const uint32_t precs[] = {512, 1024, 1984, 2048, 2112, 3072,
+                            4096, 6144, 8192};
+  const size_t np = sizeof(precs) / sizeof(precs[0]);
+
+  for (size_t pi = 0; pi < np; pi++) {
+    uint32_t p = precs[pi];
+    s21_mpf_t a, b, prod, expected, t_big, t_sub, one;
+
+    s21_mpf_init2(&a, p);
+    s21_mpf_init2(&b, p);
+    s21_mpf_init2(&prod, p);
+    s21_mpf_init2(&expected, p);
+    s21_mpf_init2(&t_big, p);
+    s21_mpf_init2(&t_sub, p);
+    s21_mpf_init2(&one, p);
+    s21_mpf_set_ui(&one, 1);
+
+    /* a = 2^(p/2) - 1, b = 2^(p/2) + 1.
+       a·b = 2^p - 1. */
+    s21_mpf_set_ui(&a, 1);
+    a.exp = (int64_t)(p / 2) + 1;
+    s21_mpf_normalize(&a);
+    s21_mpf_sub(&a, &a, &one);
+
+    s21_mpf_set_ui(&b, 1);
+    b.exp = (int64_t)(p / 2) + 1;
+    s21_mpf_normalize(&b);
+    s21_mpf_add(&b, &b, &one);
+
+    s21_mpf_mul(&prod, &a, &b);
+
+    s21_mpf_set_ui(&expected, 1);
+    expected.exp = (int64_t)p + 1;
+    s21_mpf_normalize(&expected);
+    s21_mpf_sub(&expected, &expected, &one);
+
+    ASSERT(s21_mpf_cmp(&prod, &expected) == 0,
+           "(2^(p/2)-1)(2^(p/2)+1) = 2^p - 1");
+
+    /* a^2 = 2^p - 2^(p/2+1) + 1. */
+    s21_mpf_mul(&prod, &a, &a);
+
+    s21_mpf_set_ui(&expected, 1);
+    expected.exp = (int64_t)p + 1;
+    s21_mpf_normalize(&expected);
+
+    s21_mpf_set_ui(&t_sub, 1);
+    t_sub.exp = (int64_t)(p / 2) + 2;
+    s21_mpf_normalize(&t_sub);
+    s21_mpf_sub(&expected, &expected, &t_sub);
+    s21_mpf_add(&expected, &expected, &one);
+
+    ASSERT(s21_mpf_cmp(&prod, &expected) == 0,
+           "(2^(p/2)-1)^2 = 2^p - 2^(p/2+1) + 1");
+
+    /* Симметричная проверка: b^2 = 2^p + 2^(p/2+1) + 1. */
+    s21_mpf_mul(&prod, &b, &b);
+
+    s21_mpf_set_ui(&expected, 1);
+    expected.exp = (int64_t)p + 1;
+    s21_mpf_normalize(&expected);
+    s21_mpf_add(&expected, &expected, &t_sub);
+    s21_mpf_add(&expected, &expected, &one);
+
+    ASSERT(s21_mpf_cmp(&prod, &expected) == 0,
+           "(2^(p/2)+1)^2 = 2^p + 2^(p/2+1) + 1");
+
+    s21_mpf_clear(&a);
+    s21_mpf_clear(&b);
+    s21_mpf_clear(&prod);
+    s21_mpf_clear(&expected);
+    s21_mpf_clear(&t_big);
+    s21_mpf_clear(&t_sub);
+    s21_mpf_clear(&one);
+  }
+
+  printf("[ok] mul large prec (Karatsuba)\n");
+}
+
+/* Cross-check: школьный алгоритм и Карацуба на одном входе
+   должны давать побитово идентичный результат.  Покрывает
+   асимметричные мантиссы (LCG-шум), нечётные n и границу
+   S21_MPF_KARATSUBA_THRESHOLD. */
+static void test_mul_karatsuba_vs_schoolbook(void) {
+  /* n — число лимбов, чуть выше и вокруг порога 32.  Значения
+     wp = n·64 соответствуют prec ≈ wp - 64. */
+  const uint32_t ns[] = {16, 31, 32, 33, 47, 48, 63, 64, 65,
+                         100, 129, 200};
+  const size_t nn = sizeof(ns) / sizeof(ns[0]);
+
+  for (size_t i = 0; i < nn; i++) {
+    size_t n = ns[i];
+    uint64_t *A = malloc(n * sizeof(uint64_t));
+    uint64_t *B = malloc(n * sizeof(uint64_t));
+    uint64_t *C_k = malloc(2 * n * sizeof(uint64_t));
+    uint64_t *C_s = malloc(2 * n * sizeof(uint64_t));
+    ASSERT(A && B && C_k && C_s, "malloc");
+
+    /* LCG: асимметричные мантиссы без какой-либо структуры. */
+    uint64_t state = 0xCAFEBABEDEADBEEFULL ^ ((uint64_t)n << 32);
+    for (size_t j = 0; j < n; j++) {
+      state = state * 6364136223846793005ULL + 1442695040888963407ULL;
+      A[j] = state;
+      state = state * 6364136223846793005ULL + 1442695040888963407ULL;
+      B[j] = state;
+    }
+
+    s21_mpf_mul_mant_schoolbook(C_s, A, B, n);
+    s21_mpf_mul_mant_karatsuba(C_k, A, B, n);
+
+    ASSERT(memcmp(C_k, C_s, 2 * n * sizeof(uint64_t)) == 0,
+           "Karatsuba == schoolbook (bit-for-bit)");
+
+    free(A);
+    free(B);
+    free(C_k);
+    free(C_s);
+  }
+
+  printf("[ok] mul: Karatsuba vs schoolbook cross-check\n");
+}
+
 static void test_div(void) {
   s21_mpf_t a, b, c, expected;
   s21_mpf_init2(&a, 256);
@@ -2553,6 +2680,8 @@ int main(void) {
       {"mul",                              test_mul},
       {"prec not multiple of 32",          test_nonmult32_prec},
       {"mul at many precisions",           test_mul_many_prec},
+      {"mul large prec (Karatsuba)",       test_mul_large_prec},
+      {"mul Karatsuba vs schoolbook",      test_mul_karatsuba_vs_schoolbook},
       {"div",                              test_div},
       {"div at many precisions",           test_div_many_prec},
       {"div powers of two",                test_div_powers_of_two},
