@@ -732,7 +732,10 @@ static void test_mul_karatsuba_vs_schoolbook(void) {
 /* Cross-check Toom-Cook против schoolbook.  n кратно 3 и
    ≥ S21_MPF_TOOMCOOK_THRESHOLD. */
 static void test_mul_toomcook_vs_schoolbook(void) {
-  const uint32_t ns[] = {96, 192, 384, 768, 1536};
+  /* Включаем n не кратные 3, чтобы проверить padding:
+     97, 98, 129, 130, 131, 257, 258, 259. */
+  const uint32_t ns[] = {96, 97, 98, 129, 130, 131, 192, 257, 258, 259,
+                         384, 768, 1536};
   const size_t nn = sizeof(ns) / sizeof(ns[0]);
 
   for (size_t i = 0; i < nn; i++) {

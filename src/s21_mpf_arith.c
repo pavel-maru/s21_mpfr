@@ -420,7 +420,7 @@ void s21_mpf_mul_mant_karatsuba(uint64_t *prod, const uint64_t *a,
     s21_mpf_mul_mant_schoolbook(prod, a, b, n);
     return;
   }
-  if (n >= S21_MPF_TOOMCOOK_THRESHOLD && n % 3 == 0) {
+  if (n >= S21_MPF_TOOMCOOK_THRESHOLD) {
     s21_mpf_mul_mant_toomcook(prod, a, b, n);
     return;
   }
@@ -552,18 +552,64 @@ static void mul_mant_toom_rec(uint64_t *prod, const uint64_t *a,
    n < S21_MPF_TOOMCOOK_THRESHOLD — откатываемся на Карацубу. */
 void s21_mpf_mul_mant_toomcook(uint64_t *prod, const uint64_t *a,
                                const uint64_t *b, size_t n) {
-  if (n < S21_MPF_TOOMCOOK_THRESHOLD || n % 3 != 0) {
+  if (n < S21_MPF_TOOMCOOK_THRESHOLD) {
     s21_mpf_mul_mant_karatsuba(prod, a, b, n);
     return;
   }
-  size_t scratch_len = 6 * n + 64;
+
+  /* Паддинг до ближайшего кратного 3: n_pad = 3·⌈n/3⌉.
+     Верхние n_pad − n лимбов a и b заполняются нулями.
+     Рекурсия выполняется на n_pad; результат занимает
+     2·n_pad лимбов, но нам нужны только первые 2·n. */
+  size_t n_pad = 3 * ((n + 2) / 3);
+  int needs_pad = (n_pad != n);
+
+  const uint64_t *a_use = a;
+  const uint64_t *b_use = b;
+  uint64_t *a_pad = NULL;
+  uint64_t *b_pad = NULL;
+
+  if (needs_pad) {
+    a_pad = calloc(n_pad, sizeof(uint64_t));
+    b_pad = calloc(n_pad, sizeof(uint64_t));
+    if (a_pad == NULL || b_pad == NULL) {
+      free(a_pad); free(b_pad);
+      s21_mpf_mul_mant_karatsuba(prod, a, b, n);
+      return;
+    }
+    memcpy(a_pad, a, n * sizeof(uint64_t));
+    memcpy(b_pad, b, n * sizeof(uint64_t));
+    a_use = a_pad;
+    b_use = b_pad;
+  }
+
+  size_t scratch_len = 6 * n_pad + 64;
   uint64_t *scratch = malloc(scratch_len * sizeof(uint64_t));
+  uint64_t *prod_pad = NULL;
+
   if (scratch == NULL) {
-    s21_mpf_mul_mant_schoolbook(prod, a, b, n);
+    free(a_pad); free(b_pad);
+    s21_mpf_mul_mant_karatsuba(prod, a, b, n);
     return;
   }
-  mul_mant_toom_rec(prod, a, b, n, scratch);
+
+  if (needs_pad) {
+    prod_pad = malloc(2 * n_pad * sizeof(uint64_t));
+    if (prod_pad == NULL) {
+      free(scratch); free(a_pad); free(b_pad);
+      s21_mpf_mul_mant_karatsuba(prod, a, b, n);
+      return;
+    }
+    mul_mant_toom_rec(prod_pad, a_use, b_use, n_pad, scratch);
+    memcpy(prod, prod_pad, 2 * n * sizeof(uint64_t));
+    free(prod_pad);
+  } else {
+    mul_mant_toom_rec(prod, a, b, n, scratch);
+  }
+
   free(scratch);
+  free(a_pad);
+  free(b_pad);
 }
 
 /* Операнды NORMAL, все одинаковой точности. Внутри — рабочие
