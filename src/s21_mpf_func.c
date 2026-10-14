@@ -607,6 +607,478 @@ int s21_mpf_e(s21_mpf_t *res) {
 }
 
 /* ============================================================
+   Возведение в степень: pow(x, y) = x^y.
+
+   Спецзначения — по C99 (Annex F) / MPFR:
+
+     pow(any, ±0)  = 1            включая pow(NaN, 0)
+     pow(+1, any)  = 1            включая pow(1, NaN), pow(1, ±inf)
+     pow(-1, ±inf) = 1
+     pow(NaN, y≠0) = NaN
+     pow(x≠+1, NaN) = NaN
+     pow(x<0, y нецелое) = NaN
+     pow(±0, y>0)  = ±0           знак = sign_x & (y mod 2)
+     pow(±0, y<0)  = ±inf         то же
+     pow(±inf, y>0) = ±inf        знак = sign_x & (y mod 2)
+     pow(±inf, y<0) = ±0          то же
+     pow(x, ±inf)  = +inf / +0    если |x| > 1 / |x| < 1
+                    1             если |x| = 1
+
+   Общий случай:
+     x > 0           r = exp(y · log x), знак +
+     x < 0, y целое  r = exp(y · log |x|), знак = sign_x & (y mod 2)
+   ============================================================ */
+
+/* x — ровно +1 или −1?  Возвращает 1/0, is_neg — знак. */
+static int mpf_is_unit(const s21_mpf_t *x, int *is_neg) {
+  if (x->kind != S21_MPF_NORMAL) return 0;
+  if (x->exp != 1) return 0;
+
+  uint32_t top_word = (x->prec - 1) / 64;
+  uint32_t top_bit = (x->prec - 1) % 64;
+  size_t count = s21_mpf_limbs_for_prec(x->prec);
+
+  if (x->limbs[top_word] != (1ULL << top_bit)) return 0;
+  for (uint32_t i = 0; i < top_word; i++)
+    if (x->limbs[i] != 0) return 0;
+  for (size_t i = top_word + 1; i < count; i++)
+    if (x->limbs[i] != 0) return 0;
+
+  *is_neg = x->sign;
+  return 1;
+}
+
+/* y — нечётное целое?  Предполагается y->kind == NORMAL, y != 0.
+
+   Чётность определяется битом мантиссы на позиции (prec − exp):
+   именно он имеет вес 2^0 в значении y.  При exp > prec младший
+   значащий вес ≥ 2^1, значит y гарантированно чётно. */
+static int mpf_is_odd_integer(const s21_mpf_t *y) {
+  if (y->exp <= 0) return 0;
+  if (y->exp > (int64_t)y->prec) return 0;
+  uint32_t pos = (uint32_t)((int64_t)y->prec - y->exp);
+  return s21_mpf_get_bit(y, pos);
+}
+
+int s21_mpf_pow(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
+  if (res == NULL || x == NULL || y == NULL) return -1;
+
+  /* pow(anything, ±0) = 1 — раньше всего, включая pow(NaN, 0). */
+  if (y->kind == S21_MPF_ZERO) {
+    s21_mpf_set_ui(res, 1);
+    return 0;
+  }
+
+  /* pow(+1, anything) = 1 — раньше NaN-протокола, включая pow(1, NaN). */
+  int x_neg_unit;
+  int x_unit = mpf_is_unit(x, &x_neg_unit);
+  if (x_unit && !x_neg_unit) {
+    s21_mpf_set_ui(res, 1);
+    return 0;
+  }
+
+  /* NaN-протокол. */
+  if (x->kind == S21_MPF_NAN || y->kind == S21_MPF_NAN) {
+    s21_mpf_set_nan(res);
+    return 0;
+  }
+
+  int y_odd = (y->kind == S21_MPF_NORMAL) ? mpf_is_odd_integer(y) : 0;
+  int y_int = s21_mpf_integer_p(y);
+
+  /* y = ±inf. */
+  if (y->kind == S21_MPF_INF) {
+    /* |x| = 1 → 1 (включая x = -1). */
+    if (x_unit) {
+      s21_mpf_set_ui(res, 1);
+      return 0;
+    }
+    s21_mpf_t one;
+    s21_mpf_init2(&one, x->prec);
+    s21_mpf_set_ui(&one, 1);
+    int cmp = s21_mpf_cmp_abs(x, &one);
+    s21_mpf_clear(&one);
+
+    if (cmp > 0) {
+      if (y->sign) s21_mpf_set_zero(res, 0);
+      else         s21_mpf_set_inf(res, 0);
+    } else {
+      if (y->sign) s21_mpf_set_inf(res, 0);
+      else         s21_mpf_set_zero(res, 0);
+    }
+    return 0;
+  }
+
+  /* x = ±inf. */
+  if (x->kind == S21_MPF_INF) {
+    int sign = (x->sign && y_odd) ? 1 : 0;
+    if (y->sign) s21_mpf_set_zero(res, sign);
+    else         s21_mpf_set_inf(res, sign);
+    return 0;
+  }
+
+  /* x = ±0. */
+  if (x->kind == S21_MPF_ZERO) {
+    int sign = (x->sign && y_odd) ? 1 : 0;
+    if (y->sign) s21_mpf_set_inf(res, sign);
+    else         s21_mpf_set_zero(res, sign);
+    return 0;
+  }
+
+  /* Оба NORMAL.  x < 0 и y нецелое → NaN. */
+  if (x->sign && !y_int) {
+    s21_mpf_set_nan(res);
+    return 0;
+  }
+
+  uint32_t wp = res->prec + 64;
+
+  s21_mpf_stack_t lg_s, yw_s, ylg_s, r_s;
+  s21_mpf_stack_init(&lg_s,  wp);
+  s21_mpf_stack_init(&yw_s,  wp);
+  s21_mpf_stack_init(&ylg_s, wp);
+  s21_mpf_stack_init(&r_s,   wp);
+
+  if (x->sign) {
+    s21_mpf_t xa;
+    s21_mpf_init2(&xa, wp);
+    s21_mpf_abs(&xa, x);
+    s21_mpf_log(&lg_s.mpf, &xa);
+    s21_mpf_clear(&xa);
+  } else {
+    s21_mpf_log(&lg_s.mpf, x);
+  }
+
+  s21_mpf_set(&yw_s.mpf, y);
+  s21_mpf_mul_raw(&ylg_s.mpf, &yw_s.mpf, &lg_s.mpf);
+  s21_mpf_exp(&r_s.mpf, &ylg_s.mpf);
+
+  if (x->sign) r_s.mpf.sign = y_odd ? 1 : 0;
+
+  s21_mpf_set(res, &r_s.mpf);
+
+  s21_mpf_stack_clear(&lg_s);
+  s21_mpf_stack_clear(&yw_s);
+  s21_mpf_stack_clear(&ylg_s);
+  s21_mpf_stack_clear(&r_s);
+  return 0;
+}
+
+/* ============================================================
+   Гиперболические функции.
+
+     sinh(x) = (e^x − e^−x) / 2
+     cosh(x) = (e^x + e^−x) / 2
+     tanh(x) = sinh(x) / cosh(x)
+
+   Cancelation есть только в sinh и tanh: при малых |x| вычитание
+   двух почти равных чисел теряет ~log2(1/|x|) бит.  Компенсируем
+   guard-битами, пропорциональными −exp(x).  cosh(x) — оба
+   слагаемых одного знака, cancelation нет.
+
+   Короткое замыкание при |x| < 2^(−prec/2): sinh(x) ≈ x,
+   tanh(x) ≈ x с точностью выше prec — возвращаем x напрямую.
+   ============================================================ */
+
+/* Общий каркас sinh/cosh: r = (e^x ± e^−x) / 2.
+   subtract == 1 → sinh, subtract == 0 → cosh. */
+static int hyp_exp_pair(s21_mpf_t *res, const s21_mpf_t *x, int subtract) {
+  uint32_t base_prec = res->prec;
+
+  /* Короткое замыкание: |x| < 2^(−prec/2) → sinh(x) = x. */
+  if (subtract && x->exp < -(int64_t)base_prec / 2) {
+    s21_mpf_set(res, x);
+    return 0;
+  }
+
+  int64_t guard = 0;
+  if (subtract && x->exp < 0) {
+    guard = -x->exp;
+    if (guard > (int64_t)base_prec) guard = (int64_t)base_prec;
+  }
+  uint32_t wp = base_prec + 64 + (uint32_t)guard;
+
+  s21_mpf_stack_t ep_s, em_s, sum_s;
+  s21_mpf_stack_init(&ep_s,  wp);
+  s21_mpf_stack_init(&em_s,  wp);
+  s21_mpf_stack_init(&sum_s, wp);
+
+  s21_mpf_set(&ep_s.mpf, x);
+  s21_mpf_neg_raw(&em_s.mpf, x);
+
+  s21_mpf_exp(&ep_s.mpf, &ep_s.mpf);
+  s21_mpf_exp(&em_s.mpf, &em_s.mpf);
+
+  if (subtract)
+    s21_mpf_sub_raw(&sum_s.mpf, &ep_s.mpf, &em_s.mpf);
+  else
+    s21_mpf_add_raw(&sum_s.mpf, &ep_s.mpf, &em_s.mpf);
+
+  sum_s.mpf.exp -= 1; /* × ½ */
+  s21_mpf_normalize(&sum_s.mpf);
+  s21_mpf_set(res, &sum_s.mpf);
+
+  s21_mpf_stack_clear(&ep_s);
+  s21_mpf_stack_clear(&em_s);
+  s21_mpf_stack_clear(&sum_s);
+  return 0;
+}
+
+int s21_mpf_sinh(s21_mpf_t *res, const s21_mpf_t *x) {
+  if (res == NULL || x == NULL) return -1;
+  if (x->kind == S21_MPF_NAN) {
+    s21_mpf_set_nan(res);
+    return 0;
+  }
+  if (x->kind == S21_MPF_ZERO) {
+    s21_mpf_set_zero(res, x->sign);
+    return 0;
+  }
+  if (x->kind == S21_MPF_INF) {
+    s21_mpf_set_inf(res, x->sign);
+    return 0;
+  }
+  return hyp_exp_pair(res, x, 1);
+}
+
+int s21_mpf_cosh(s21_mpf_t *res, const s21_mpf_t *x) {
+  if (res == NULL || x == NULL) return -1;
+  if (x->kind == S21_MPF_NAN) {
+    s21_mpf_set_nan(res);
+    return 0;
+  }
+  if (x->kind == S21_MPF_ZERO) {
+    s21_mpf_set_ui(res, 1);
+    return 0;
+  }
+  if (x->kind == S21_MPF_INF) {
+    s21_mpf_set_inf(res, 0);
+    return 0;
+  }
+  return hyp_exp_pair(res, x, 0);
+}
+
+int s21_mpf_tanh(s21_mpf_t *res, const s21_mpf_t *x) {
+  if (res == NULL || x == NULL) return -1;
+  if (x->kind == S21_MPF_NAN) {
+    s21_mpf_set_nan(res);
+    return 0;
+  }
+  if (x->kind == S21_MPF_ZERO) {
+    s21_mpf_set_zero(res, x->sign);
+    return 0;
+  }
+  if (x->kind == S21_MPF_INF) {
+    s21_mpf_set_ui(res, 1);
+    res->sign = x->sign;
+    return 0;
+  }
+
+  /* Малые |x|: tanh(x) ≈ x с точностью выше prec. */
+  if (x->exp < -(int64_t)res->prec / 2) {
+    s21_mpf_set(res, x);
+    return 0;
+  }
+
+  /* Большие |x|: tanh насыщается к ±1; при |x|·log₂(e) > prec
+     младший бит единицы уже не различим. */
+  if (x->exp > (int64_t)res->prec) {
+    s21_mpf_set_ui(res, 1);
+    res->sign = x->sign;
+    return 0;
+  }
+
+  uint32_t wp = res->prec + 64;
+
+  s21_mpf_stack_t s_s, c_s, r_s;
+  s21_mpf_stack_init(&s_s, wp);
+  s21_mpf_stack_init(&c_s, wp);
+  s21_mpf_stack_init(&r_s, wp);
+
+  hyp_exp_pair(&s_s.mpf, x, 1);
+  hyp_exp_pair(&c_s.mpf, x, 0);
+  s21_mpf_div_raw(&r_s.mpf, &s_s.mpf, &c_s.mpf);
+  s21_mpf_set(res, &r_s.mpf);
+
+  s21_mpf_stack_clear(&s_s);
+  s21_mpf_stack_clear(&c_s);
+  s21_mpf_stack_clear(&r_s);
+  return 0;
+}
+
+int s21_mpf_asinh(s21_mpf_t *res, const s21_mpf_t *x) {
+  if (res == NULL || x == NULL) return -1;
+  if (x->kind == S21_MPF_NAN) {
+    s21_mpf_set_nan(res);
+    return 0;
+  }
+  if (x->kind == S21_MPF_ZERO) {
+    s21_mpf_set_zero(res, x->sign);
+    return 0;
+  }
+  if (x->kind == S21_MPF_INF) {
+    s21_mpf_set_inf(res, x->sign);
+    return 0;
+  }
+
+  /* Малые |x|: asinh(x) = x − x³/6 + …  → x с точностью выше prec. */
+  if (x->exp < -(int64_t)res->prec / 2) {
+    s21_mpf_set(res, x);
+    return 0;
+  }
+
+  uint32_t wp = res->prec + 64;
+
+  s21_mpf_stack_t xa_s, sq_s, one_s, sum_s, root_s;
+  s21_mpf_stack_init(&xa_s,   wp);
+  s21_mpf_stack_init(&sq_s,   wp);
+  s21_mpf_stack_init(&one_s,  wp);
+  s21_mpf_stack_init(&sum_s,  wp);
+  s21_mpf_stack_init(&root_s, wp);
+
+  s21_mpf_abs(&xa_s.mpf, x);
+  s21_mpf_set_ui(&one_s.mpf, 1);
+  s21_mpf_mul_raw(&sq_s.mpf, &xa_s.mpf, &xa_s.mpf);
+  s21_mpf_add_raw(&sum_s.mpf, &sq_s.mpf, &one_s.mpf);
+  s21_mpf_sqrt(&root_s.mpf, &sum_s.mpf);
+  s21_mpf_add_raw(&root_s.mpf, &root_s.mpf, &xa_s.mpf);
+  s21_mpf_log(&sum_s.mpf, &root_s.mpf);
+
+  if (x->sign) sum_s.mpf.sign = 1;
+  s21_mpf_set(res, &sum_s.mpf);
+
+  s21_mpf_stack_clear(&xa_s);
+  s21_mpf_stack_clear(&sq_s);
+  s21_mpf_stack_clear(&one_s);
+  s21_mpf_stack_clear(&sum_s);
+  s21_mpf_stack_clear(&root_s);
+  return 0;
+}
+
+int s21_mpf_acosh(s21_mpf_t *res, const s21_mpf_t *x) {
+  if (res == NULL || x == NULL) return -1;
+  if (x->kind == S21_MPF_NAN) {
+    s21_mpf_set_nan(res);
+    return 0;
+  }
+  if (x->kind == S21_MPF_INF) {
+    s21_mpf_set_inf(res, 0);
+    return 0;
+  }
+  if (x->kind == S21_MPF_ZERO || x->sign) {
+    s21_mpf_set_nan(res);
+    return 0;
+  }
+
+  /* Проверка x vs 1. */
+  s21_mpf_t one;
+  s21_mpf_init2(&one, x->prec);
+  s21_mpf_set_ui(&one, 1);
+  int cmp = s21_mpf_cmp(x, &one);
+  s21_mpf_clear(&one);
+  if (cmp == 0) {
+    s21_mpf_set_zero(res, 0);
+    return 0;
+  }
+  if (cmp < 0) {
+    s21_mpf_set_nan(res);
+    return 0;
+  }
+
+  uint32_t wp = res->prec + 64;
+
+  s21_mpf_stack_t xw_s, one_s, xm_s, xp_s, prod_s, root_s, sum_s;
+  s21_mpf_stack_init(&xw_s,   wp);
+  s21_mpf_stack_init(&one_s,  wp);
+  s21_mpf_stack_init(&xm_s,   wp);
+  s21_mpf_stack_init(&xp_s,   wp);
+  s21_mpf_stack_init(&prod_s, wp);
+  s21_mpf_stack_init(&root_s, wp);
+  s21_mpf_stack_init(&sum_s,  wp);
+
+  s21_mpf_set(&xw_s.mpf, x); /* приведение x к рабочей точности wp */
+  s21_mpf_set_ui(&one_s.mpf, 1);
+  s21_mpf_sub_raw(&xm_s.mpf, &xw_s.mpf, &one_s.mpf); /* x − 1 */
+  s21_mpf_add_raw(&xp_s.mpf, &xw_s.mpf, &one_s.mpf); /* x + 1 */
+  s21_mpf_mul_raw(&prod_s.mpf, &xm_s.mpf, &xp_s.mpf);
+  s21_mpf_sqrt(&root_s.mpf, &prod_s.mpf);
+  s21_mpf_add_raw(&sum_s.mpf, &xw_s.mpf, &root_s.mpf);
+  s21_mpf_log(res, &sum_s.mpf);
+
+  s21_mpf_stack_clear(&xw_s);
+  s21_mpf_stack_clear(&one_s);
+  s21_mpf_stack_clear(&xm_s);
+  s21_mpf_stack_clear(&xp_s);
+  s21_mpf_stack_clear(&prod_s);
+  s21_mpf_stack_clear(&root_s);
+  s21_mpf_stack_clear(&sum_s);
+  return 0;
+}
+
+int s21_mpf_atanh(s21_mpf_t *res, const s21_mpf_t *x) {
+  if (res == NULL || x == NULL) return -1;
+  if (x->kind == S21_MPF_NAN) {
+    s21_mpf_set_nan(res);
+    return 0;
+  }
+  if (x->kind == S21_MPF_ZERO) {
+    s21_mpf_set_zero(res, x->sign);
+    return 0;
+  }
+  if (x->kind == S21_MPF_INF) {
+    s21_mpf_set_nan(res);
+    return 0;
+  }
+
+  /* |x| = 1 → ±inf, |x| > 1 → NaN. */
+  s21_mpf_t one;
+  s21_mpf_init2(&one, x->prec);
+  s21_mpf_set_ui(&one, 1);
+  int cmp = s21_mpf_cmp_abs(x, &one);
+  s21_mpf_clear(&one);
+  if (cmp == 0) {
+    s21_mpf_set_inf(res, x->sign);
+    return 0;
+  }
+  if (cmp > 0) {
+    s21_mpf_set_nan(res);
+    return 0;
+  }
+
+  /* Малые |x|: atanh(x) = x + x³/3 + … → x с точностью выше prec. */
+  if (x->exp < -(int64_t)res->prec / 2) {
+    s21_mpf_set(res, x);
+    return 0;
+  }
+
+  uint32_t wp = res->prec + 64;
+
+  s21_mpf_stack_t xw_s, one_s, num_s, den_s, ratio_s;
+  s21_mpf_stack_init(&xw_s,    wp);
+  s21_mpf_stack_init(&one_s,   wp);
+  s21_mpf_stack_init(&num_s,   wp);
+  s21_mpf_stack_init(&den_s,   wp);
+  s21_mpf_stack_init(&ratio_s, wp);
+
+  s21_mpf_set(&xw_s.mpf, x); /* приведение x к рабочей точности wp */
+  s21_mpf_set_ui(&one_s.mpf, 1);
+  s21_mpf_add_raw(&num_s.mpf, &one_s.mpf, &xw_s.mpf); /* 1 + x */
+  s21_mpf_sub_raw(&den_s.mpf, &one_s.mpf, &xw_s.mpf); /* 1 − x */
+  s21_mpf_div_raw(&ratio_s.mpf, &num_s.mpf, &den_s.mpf);
+  s21_mpf_log(&num_s.mpf, &ratio_s.mpf);
+  num_s.mpf.exp -= 1; /* × ½ */
+  s21_mpf_normalize(&num_s.mpf);
+  s21_mpf_set(res, &num_s.mpf);
+
+  s21_mpf_stack_clear(&xw_s);
+  s21_mpf_stack_clear(&one_s);
+  s21_mpf_stack_clear(&num_s);
+  s21_mpf_stack_clear(&den_s);
+  s21_mpf_stack_clear(&ratio_s);
+  return 0;
+}
+
+/* ============================================================
    Ленивое получение π
    ============================================================ */
 

@@ -108,6 +108,26 @@ void s21_mpf_neg(s21_mpf_t *res, const s21_mpf_t *x);
 void s21_mpf_abs(s21_mpf_t *res, const s21_mpf_t *x);
 void s21_mpf_normalize(s21_mpf_t *x);
 
+/* ============== Возведение в степень ============== */
+
+/* x^y.  Семантика — C99 pow / MPFR (Annex F):
+     pow(any, ±0)         = 1     (включая pow(NaN, 0))
+     pow(+1, any)         = 1     (включая pow(1, NaN), pow(1, ±inf))
+     pow(-1, ±inf)        = 1
+     pow(x<0, y нецелое)  = NaN
+     pow(±0, y>0)         = ±0    знак = sign_x & (y mod 2)
+     pow(±0, y<0)         = ±inf  то же
+     pow(±inf, y>0)       = ±inf  то же
+     pow(±inf, y<0)       = ±0    то же
+     pow(|x|>1, ±inf)     = ±inf / ±0
+     pow(|x|<1, ±inf)     = ±0 / ±inf
+
+   Общий случай: x > 0 → exp(y·log x).
+   x < 0, y целое → exp(y·log|x|), знак = sign_x & (y mod 2).
+
+   0 при успехе, -1 при NULL. */
+int s21_mpf_pow(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y);
+
 /* ============== Элементарные функции ============== */
 
 int s21_mpf_sqrt(s21_mpf_t *res, const s21_mpf_t *x);
@@ -172,6 +192,28 @@ int s21_mpf_asin_with_pi(s21_mpf_t *res, const s21_mpf_t *x,
                          const s21_mpf_t *pi);
 int s21_mpf_acos_with_pi(s21_mpf_t *res, const s21_mpf_t *x,
                          const s21_mpf_t *pi);
+
+/* ============== Гиперболические функции ============== */
+
+/* sinh(x) = (e^x − e^−x) / 2.  Нечётная.  sinh(±inf) = ±inf. */
+int s21_mpf_sinh(s21_mpf_t *res, const s21_mpf_t *x);
+
+/* cosh(x) = (e^x + e^−x) / 2.  Чётная, cosh(x) ≥ 1.  cosh(±inf) = +inf. */
+int s21_mpf_cosh(s21_mpf_t *res, const s21_mpf_t *x);
+
+/* tanh(x) = sinh(x) / cosh(x).  Нечётная, |tanh| < 1.  tanh(±inf) = ±1. */
+int s21_mpf_tanh(s21_mpf_t *res, const s21_mpf_t *x);
+
+/* asinh(x) = log(x + √(x²+1)).  Нечётная, определена везде. */
+int s21_mpf_asinh(s21_mpf_t *res, const s21_mpf_t *x);
+
+/* acosh(x) = log(x + √((x−1)(x+1))).  Домен x ≥ 1.
+   acosh(1) = 0, acosh(x<1) = NaN, acosh(+inf) = +inf. */
+int s21_mpf_acosh(s21_mpf_t *res, const s21_mpf_t *x);
+
+/* atanh(x) = ½·log((1+x)/(1−x)).  Домен |x| < 1.
+   atanh(±1) = ±inf, atanh(|x|>1) = NaN. */
+int s21_mpf_atanh(s21_mpf_t *res, const s21_mpf_t *x);
 
 /* ============== I/O ============== */
 

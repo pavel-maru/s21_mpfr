@@ -1551,6 +1551,382 @@ static void test_const_ln2_e(void) {
   printf("[ok] constants ln2 / e\n");
 }
 
+static void test_pow(void) {
+  s21_mpf_t x, y, r, e, diff, thr;
+  s21_mpf_init2(&x, 256);
+  s21_mpf_init2(&y, 256);
+  s21_mpf_init2(&r, 256);
+  s21_mpf_init2(&e, 256);
+  s21_mpf_init2(&diff, 256);
+  s21_mpf_init2(&thr, 256);
+
+  /* Целые показатели */
+  s21_mpf_set_ui(&x, 2);
+  s21_mpf_set_ui(&y, 10);
+  s21_mpf_pow(&r, &x, &y);
+  s21_mpf_set_ui(&e, 1024);
+  ASSERT(s21_mpf_cmp(&r, &e) == 0, "2^10 = 1024");
+
+  s21_mpf_set_si(&x, -2);
+  s21_mpf_set_ui(&y, 3);
+  s21_mpf_pow(&r, &x, &y);
+  s21_mpf_set_si(&e, -8);
+  ASSERT(s21_mpf_cmp(&r, &e) == 0, "(-2)^3 = -8");
+
+  s21_mpf_set_si(&x, -2);
+  s21_mpf_set_ui(&y, 4);
+  s21_mpf_pow(&r, &x, &y);
+  s21_mpf_set_ui(&e, 16);
+  ASSERT(s21_mpf_cmp(&r, &e) == 0, "(-2)^4 = 16");
+
+  /* Нецелый показатель */
+  s21_mpf_set_ui(&x, 4);
+  s21_mpf_set_d(&y, 0.5);
+  s21_mpf_pow(&r, &x, &y);
+  s21_mpf_set_ui(&e, 2);
+  ASSERT(s21_mpf_cmp(&r, &e) == 0, "4^0.5 = 2");
+
+  s21_mpf_set_ui(&x, 2);
+  s21_mpf_set_d(&y, 0.5);
+  s21_mpf_pow(&r, &x, &y);
+  s21_mpf_set_d(&e, 1.4142135623730951);
+  s21_mpf_sub(&diff, &r, &e);
+  s21_mpf_abs(&diff, &diff);
+  s21_mpf_set_d(&thr, 1e-15);
+  ASSERT(s21_mpf_cmp(&diff, &thr) < 0, "2^0.5 ≈ √2");
+
+  s21_mpf_set_si(&x, -2);
+  s21_mpf_set_d(&y, 0.5);
+  s21_mpf_pow(&r, &x, &y);
+  ASSERT(s21_mpf_is_nan(&r), "(-2)^0.5 = NaN");
+
+  /* Показатель 0 */
+  s21_mpf_set_ui(&x, 5);
+  s21_mpf_set_ui(&y, 0);
+  s21_mpf_pow(&r, &x, &y);
+  s21_mpf_set_ui(&e, 1);
+  ASSERT(s21_mpf_cmp(&r, &e) == 0, "5^0 = 1");
+
+  s21_mpf_set_nan(&x);
+  s21_mpf_set_ui(&y, 0);
+  s21_mpf_pow(&r, &x, &y);
+  ASSERT(s21_mpf_cmp(&r, &e) == 0, "NaN^0 = 1");
+
+  /* x = +1 */
+  s21_mpf_set_ui(&x, 1);
+  s21_mpf_set_nan(&y);
+  s21_mpf_pow(&r, &x, &y);
+  ASSERT(s21_mpf_cmp(&r, &e) == 0, "1^NaN = 1");
+
+  s21_mpf_set_ui(&x, 1);
+  s21_mpf_set_inf(&y, 0);
+  s21_mpf_pow(&r, &x, &y);
+  ASSERT(s21_mpf_cmp(&r, &e) == 0, "1^+inf = 1");
+
+  /* ±0 */
+  s21_mpf_set_zero(&x, 0);
+  s21_mpf_set_ui(&y, 3);
+  s21_mpf_pow(&r, &x, &y);
+  ASSERT(s21_mpf_is_zero(&r) && r.sign == 0, "+0^3 = +0");
+
+  s21_mpf_set_zero(&x, 1);
+  s21_mpf_set_ui(&y, 3);
+  s21_mpf_pow(&r, &x, &y);
+  ASSERT(s21_mpf_is_zero(&r) && r.sign == 1, "(-0)^3 = -0");
+
+  s21_mpf_set_zero(&x, 1);
+  s21_mpf_set_ui(&y, 2);
+  s21_mpf_pow(&r, &x, &y);
+  ASSERT(s21_mpf_is_zero(&r) && r.sign == 0, "(-0)^2 = +0");
+
+  s21_mpf_set_zero(&x, 1);
+  s21_mpf_set_si(&y, -3);
+  s21_mpf_pow(&r, &x, &y);
+  ASSERT(s21_mpf_is_inf(&r) && r.sign == 1, "(-0)^-3 = -inf");
+
+  /* ±inf в x */
+  s21_mpf_set_inf(&x, 0);
+  s21_mpf_set_ui(&y, 3);
+  s21_mpf_pow(&r, &x, &y);
+  ASSERT(s21_mpf_is_inf(&r) && r.sign == 0, "+inf^3 = +inf");
+
+  s21_mpf_set_inf(&x, 1);
+  s21_mpf_set_ui(&y, 3);
+  s21_mpf_pow(&r, &x, &y);
+  ASSERT(s21_mpf_is_inf(&r) && r.sign == 1, "(-inf)^3 = -inf");
+
+  s21_mpf_set_inf(&x, 1);
+  s21_mpf_set_ui(&y, 2);
+  s21_mpf_pow(&r, &x, &y);
+  ASSERT(s21_mpf_is_inf(&r) && r.sign == 0, "(-inf)^2 = +inf");
+
+  /* ±inf в y */
+  s21_mpf_set_ui(&x, 2);
+  s21_mpf_set_inf(&y, 0);
+  s21_mpf_pow(&r, &x, &y);
+  ASSERT(s21_mpf_is_inf(&r) && r.sign == 0, "2^+inf = +inf");
+
+  s21_mpf_set_ui(&x, 2);
+  s21_mpf_set_inf(&y, 1);
+  s21_mpf_pow(&r, &x, &y);
+  ASSERT(s21_mpf_is_zero(&r), "2^-inf = 0");
+
+  s21_mpf_set_d(&x, 0.5);
+  s21_mpf_set_inf(&y, 0);
+  s21_mpf_pow(&r, &x, &y);
+  ASSERT(s21_mpf_is_zero(&r), "0.5^+inf = 0");
+
+  s21_mpf_set_d(&x, 0.5);
+  s21_mpf_set_inf(&y, 1);
+  s21_mpf_pow(&r, &x, &y);
+  ASSERT(s21_mpf_is_inf(&r), "0.5^-inf = +inf");
+
+  s21_mpf_set_si(&x, -1);
+  s21_mpf_set_inf(&y, 0);
+  s21_mpf_pow(&r, &x, &y);
+  s21_mpf_set_ui(&e, 1);
+  ASSERT(s21_mpf_cmp(&r, &e) == 0, "(-1)^+inf = 1");
+
+  /* Большие показатели: проверяем через log */
+  s21_mpf_set_ui(&x, 2);
+  s21_mpf_set_ui(&y, 1000);
+  s21_mpf_pow(&r, &x, &y);
+  {
+    s21_mpf_t rl, l2, k;
+    s21_mpf_init2(&rl, 256);
+    s21_mpf_init2(&l2, 256);
+    s21_mpf_init2(&k, 256);
+    s21_mpf_log(&rl, &r);
+    s21_mpf_log(&l2, &x);
+    s21_mpf_div(&k, &rl, &l2);
+    s21_mpf_set_ui(&e, 1000);
+    s21_mpf_sub(&diff, &k, &e);
+    s21_mpf_abs(&diff, &diff);
+    s21_mpf_set_d(&thr, 1e-70);
+    ASSERT(s21_mpf_cmp(&diff, &thr) < 0, "log2(2^1000) = 1000");
+    s21_mpf_clear(&rl);
+    s21_mpf_clear(&l2);
+    s21_mpf_clear(&k);
+  }
+
+  ASSERT(s21_mpf_pow(NULL, &x, &y) == -1, "pow: NULL res");
+  ASSERT(s21_mpf_pow(&r, NULL, &y) == -1, "pow: NULL x");
+  ASSERT(s21_mpf_pow(&r, &x, NULL) == -1, "pow: NULL y");
+
+  s21_mpf_clear(&x);
+  s21_mpf_clear(&y);
+  s21_mpf_clear(&r);
+  s21_mpf_clear(&e);
+  s21_mpf_clear(&diff);
+  s21_mpf_clear(&thr);
+  printf("[ok] pow\n");
+}
+
+static void test_hyperbolic(void) {
+  s21_mpf_t x, r, e, diff, thr;
+  s21_mpf_init2(&x, 256);
+  s21_mpf_init2(&r, 256);
+  s21_mpf_init2(&e, 256);
+  s21_mpf_init2(&diff, 256);
+  s21_mpf_init2(&thr, 256);
+  s21_mpf_set_d(&thr, 1e-15);
+
+  /* sinh */
+  s21_mpf_set_ui(&x, 0);
+  s21_mpf_sinh(&r, &x);
+  ASSERT(s21_mpf_is_zero(&r), "sinh(0) = 0");
+
+  s21_mpf_set_d(&x, 1.0);
+  s21_mpf_sinh(&r, &x);
+  s21_mpf_set_d(&e, 1.1752011936438014);
+  s21_mpf_sub(&diff, &r, &e);
+  s21_mpf_abs(&diff, &diff);
+  ASSERT(s21_mpf_cmp(&diff, &thr) < 0, "sinh(1) ≈ 1.17520");
+
+  s21_mpf_set_d(&x, -1.0);
+  s21_mpf_sinh(&r, &x);
+  s21_mpf_neg(&e, &e);
+  s21_mpf_sub(&diff, &r, &e);
+  s21_mpf_abs(&diff, &diff);
+  ASSERT(s21_mpf_cmp(&diff, &thr) < 0, "sinh(-1) = -sinh(1)");
+
+  s21_mpf_set_inf(&x, 0);
+  s21_mpf_sinh(&r, &x);
+  ASSERT(s21_mpf_is_inf(&r) && r.sign == 0, "sinh(+inf) = +inf");
+
+  s21_mpf_set_inf(&x, 1);
+  s21_mpf_sinh(&r, &x);
+  ASSERT(s21_mpf_is_inf(&r) && r.sign == 1, "sinh(-inf) = -inf");
+
+  s21_mpf_set_nan(&x);
+  s21_mpf_sinh(&r, &x);
+  ASSERT(s21_mpf_is_nan(&r), "sinh(NaN) = NaN");
+
+  /* cosh */
+  s21_mpf_set_ui(&x, 0);
+  s21_mpf_cosh(&r, &x);
+  s21_mpf_set_ui(&e, 1);
+  ASSERT(s21_mpf_cmp(&r, &e) == 0, "cosh(0) = 1");
+
+  s21_mpf_set_d(&x, 1.0);
+  s21_mpf_cosh(&r, &x);
+  s21_mpf_set_d(&e, 1.5430806348152437);
+  s21_mpf_sub(&diff, &r, &e);
+  s21_mpf_abs(&diff, &diff);
+  ASSERT(s21_mpf_cmp(&diff, &thr) < 0, "cosh(1) ≈ 1.54308");
+
+  s21_mpf_set_inf(&x, 1);
+  s21_mpf_cosh(&r, &x);
+  ASSERT(s21_mpf_is_inf(&r) && r.sign == 0, "cosh(-inf) = +inf");
+
+  /* tanh */
+  s21_mpf_set_ui(&x, 0);
+  s21_mpf_tanh(&r, &x);
+  ASSERT(s21_mpf_is_zero(&r), "tanh(0) = 0");
+
+  s21_mpf_set_d(&x, 1.0);
+  s21_mpf_tanh(&r, &x);
+  s21_mpf_set_d(&e, 0.7615941559557649);
+  s21_mpf_sub(&diff, &r, &e);
+  s21_mpf_abs(&diff, &diff);
+  ASSERT(s21_mpf_cmp(&diff, &thr) < 0, "tanh(1) ≈ 0.76159");
+
+  s21_mpf_set_inf(&x, 0);
+  s21_mpf_tanh(&r, &x);
+  s21_mpf_set_ui(&e, 1);
+  ASSERT(s21_mpf_cmp(&r, &e) == 0 && r.sign == 0, "tanh(+inf) = +1");
+
+  s21_mpf_set_inf(&x, 1);
+  s21_mpf_tanh(&r, &x);
+  s21_mpf_set_si(&e, -1);
+  ASSERT(s21_mpf_cmp(&r, &e) == 0 && r.sign == 1, "tanh(-inf) = -1");
+
+  /* asinh */
+  s21_mpf_set_ui(&x, 0);
+  s21_mpf_asinh(&r, &x);
+  ASSERT(s21_mpf_is_zero(&r), "asinh(0) = 0");
+
+  s21_mpf_set_ui(&x, 1);
+  s21_mpf_asinh(&r, &x);
+  s21_mpf_set_d(&e, 0.8813735870195430);
+  s21_mpf_sub(&diff, &r, &e);
+  s21_mpf_abs(&diff, &diff);
+  ASSERT(s21_mpf_cmp(&diff, &thr) < 0, "asinh(1) ≈ 0.88137");
+
+  s21_mpf_set_inf(&x, 0);
+  s21_mpf_asinh(&r, &x);
+  ASSERT(s21_mpf_is_inf(&r) && r.sign == 0, "asinh(+inf) = +inf");
+
+  s21_mpf_set_inf(&x, 1);
+  s21_mpf_asinh(&r, &x);
+  ASSERT(s21_mpf_is_inf(&r) && r.sign == 1, "asinh(-inf) = -inf");
+
+  /* acosh */
+  s21_mpf_set_ui(&x, 1);
+  s21_mpf_acosh(&r, &x);
+  ASSERT(s21_mpf_is_zero(&r), "acosh(1) = 0");
+
+  s21_mpf_set_ui(&x, 2);
+  s21_mpf_acosh(&r, &x);
+  s21_mpf_set_d(&e, 1.3169578969248166);
+  s21_mpf_sub(&diff, &r, &e);
+  s21_mpf_abs(&diff, &diff);
+  ASSERT(s21_mpf_cmp(&diff, &thr) < 0, "acosh(2) ≈ 1.31696");
+
+  s21_mpf_set_d(&x, 0.5);
+  s21_mpf_acosh(&r, &x);
+  ASSERT(s21_mpf_is_nan(&r), "acosh(0.5) = NaN");
+
+  s21_mpf_set_inf(&x, 0);
+  s21_mpf_acosh(&r, &x);
+  ASSERT(s21_mpf_is_inf(&r) && r.sign == 0, "acosh(+inf) = +inf");
+
+  /* atanh */
+  s21_mpf_set_ui(&x, 0);
+  s21_mpf_atanh(&r, &x);
+  ASSERT(s21_mpf_is_zero(&r), "atanh(0) = 0");
+
+  s21_mpf_set_d(&x, 0.5);
+  s21_mpf_atanh(&r, &x);
+  s21_mpf_set_d(&e, 0.5493061443340549);
+  s21_mpf_sub(&diff, &r, &e);
+  s21_mpf_abs(&diff, &diff);
+  ASSERT(s21_mpf_cmp(&diff, &thr) < 0, "atanh(0.5) ≈ 0.54931");
+
+  s21_mpf_set_ui(&x, 1);
+  s21_mpf_atanh(&r, &x);
+  ASSERT(s21_mpf_is_inf(&r) && r.sign == 0, "atanh(+1) = +inf");
+
+  s21_mpf_set_si(&x, -1);
+  s21_mpf_atanh(&r, &x);
+  ASSERT(s21_mpf_is_inf(&r) && r.sign == 1, "atanh(-1) = -inf");
+
+  s21_mpf_set_ui(&x, 2);
+  s21_mpf_atanh(&r, &x);
+  ASSERT(s21_mpf_is_nan(&r), "atanh(2) = NaN");
+
+  /* Тождества */
+  s21_mpf_set_d(&x, 0.5);
+  {
+    s21_mpf_t sh, ch, sh2, ch2, d2, one_s;
+    s21_mpf_init2(&sh, 256);
+    s21_mpf_init2(&ch, 256);
+    s21_mpf_init2(&sh2, 256);
+    s21_mpf_init2(&ch2, 256);
+    s21_mpf_init2(&d2, 256);
+    s21_mpf_init2(&one_s, 256);
+    s21_mpf_set_ui(&one_s, 1);
+    s21_mpf_sinh(&sh, &x);
+    s21_mpf_cosh(&ch, &x);
+    s21_mpf_mul(&sh2, &sh, &sh);
+    s21_mpf_mul(&ch2, &ch, &ch);
+    s21_mpf_sub(&d2, &ch2, &sh2);
+    s21_mpf_sub(&d2, &d2, &one_s);
+    s21_mpf_abs(&d2, &d2);
+    s21_mpf_set_d(&thr, 1e-70);
+    ASSERT(s21_mpf_cmp(&d2, &thr) < 0, "cosh²−sinh² = 1");
+    s21_mpf_clear(&sh);
+    s21_mpf_clear(&ch);
+    s21_mpf_clear(&sh2);
+    s21_mpf_clear(&ch2);
+    s21_mpf_clear(&d2);
+    s21_mpf_clear(&one_s);
+  }
+
+  s21_mpf_set_d(&x, 1.5);
+  {
+    s21_mpf_t sh, back, d2;
+    s21_mpf_init2(&sh, 256);
+    s21_mpf_init2(&back, 256);
+    s21_mpf_init2(&d2, 256);
+    s21_mpf_sinh(&sh, &x);
+    s21_mpf_asinh(&back, &sh);
+    s21_mpf_sub(&d2, &back, &x);
+    s21_mpf_abs(&d2, &d2);
+    s21_mpf_set_d(&thr, 1e-70);
+    ASSERT(s21_mpf_cmp(&d2, &thr) < 0, "asinh(sinh(1.5)) = 1.5");
+    s21_mpf_clear(&sh);
+    s21_mpf_clear(&back);
+    s21_mpf_clear(&d2);
+  }
+
+  /* NULL */
+  ASSERT(s21_mpf_sinh(NULL, &x) == -1, "sinh: NULL res");
+  ASSERT(s21_mpf_sinh(&r, NULL) == -1, "sinh: NULL x");
+  ASSERT(s21_mpf_cosh(NULL, &x) == -1, "cosh: NULL res");
+  ASSERT(s21_mpf_tanh(NULL, &x) == -1, "tanh: NULL res");
+  ASSERT(s21_mpf_asinh(NULL, &x) == -1, "asinh: NULL res");
+  ASSERT(s21_mpf_acosh(NULL, &x) == -1, "acosh: NULL res");
+  ASSERT(s21_mpf_atanh(NULL, &x) == -1, "atanh: NULL res");
+
+  s21_mpf_clear(&x);
+  s21_mpf_clear(&r);
+  s21_mpf_clear(&e);
+  s21_mpf_clear(&diff);
+  s21_mpf_clear(&thr);
+  printf("[ok] hyperbolic (sinh/cosh/tanh/asinh/acosh/atanh)\n");
+}
+
 static void test_sin_cos(void) {
   s21_mpf_t a, s, c, expected, diff, threshold, pi;
   s21_mpf_init2(&a, 256);
@@ -2731,6 +3107,8 @@ int main(void) {
       {"pi",                               test_pi},
       {"pi: AGM vs Machin",                test_pi_machin_vs_agm},
       {"constants ln2 / e",                test_const_ln2_e},
+      {"pow",                              test_pow},
+      {"hyperbolic",                       test_hyperbolic},
       {"sin / cos",                        test_sin_cos},
       {"atan",                             test_atan},
       {"tan / asin / acos",                test_tan_asin_acos},
