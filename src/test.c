@@ -729,6 +729,43 @@ static void test_mul_karatsuba_vs_schoolbook(void) {
   printf("[ok] mul: Karatsuba vs schoolbook cross-check\n");
 }
 
+/* Cross-check Toom-Cook против schoolbook.  n кратно 3 и
+   ≥ S21_MPF_TOOMCOOK_THRESHOLD. */
+static void test_mul_toomcook_vs_schoolbook(void) {
+  const uint32_t ns[] = {96, 192, 384, 768, 1536};
+  const size_t nn = sizeof(ns) / sizeof(ns[0]);
+
+  for (size_t i = 0; i < nn; i++) {
+    size_t n = ns[i];
+    uint64_t *A    = malloc(n * sizeof(uint64_t));
+    uint64_t *B    = malloc(n * sizeof(uint64_t));
+    uint64_t *C_t  = malloc(2 * n * sizeof(uint64_t));
+    uint64_t *C_s  = malloc(2 * n * sizeof(uint64_t));
+    ASSERT(A && B && C_t && C_s, "malloc");
+
+    uint64_t state = 0x1234567890ABCDEFULL ^ ((uint64_t)n << 32);
+    for (size_t j = 0; j < n; j++) {
+      state = state * 6364136223846793005ULL + 1442695040888963407ULL;
+      A[j] = state;
+      state = state * 6364136223846793005ULL + 1442695040888963407ULL;
+      B[j] = state;
+    }
+
+    s21_mpf_mul_mant_schoolbook(C_s, A, B, n);
+    s21_mpf_mul_mant_toomcook(C_t, A, B, n);
+
+    ASSERT(memcmp(C_t, C_s, 2 * n * sizeof(uint64_t)) == 0,
+           "Toom-Cook == schoolbook (bit-for-bit)");
+
+    free(A);
+    free(B);
+    free(C_t);
+    free(C_s);
+  }
+
+  printf("[ok] mul: Toom-Cook vs schoolbook cross-check\n");
+}
+
 static void test_div(void) {
   s21_mpf_t a, b, c, expected;
   s21_mpf_init2(&a, 256);
@@ -2718,6 +2755,7 @@ int main(void) {
       {"mul at many precisions",           test_mul_many_prec},
       {"mul large prec (Karatsuba)",       test_mul_large_prec},
       {"mul Karatsuba vs schoolbook",      test_mul_karatsuba_vs_schoolbook},
+      {"mul Toom-Cook vs schoolbook",      test_mul_toomcook_vs_schoolbook},
       {"div",                              test_div},
       {"div at many precisions",           test_div_many_prec},
       {"div powers of two",                test_div_powers_of_two},

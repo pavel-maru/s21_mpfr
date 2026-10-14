@@ -185,6 +185,83 @@ int s21_mpf_sub(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
    Умножение с округлением RNDN
    ============================================================ */
 
+/* ============================================================
+   Хелперы для Toom-Cook 3-way.
+
+   Все операции беззнаковые; промежуточные значения гарантированно
+   неотрицательны (проверено алгебраически на формулах интерполяции).
+   ============================================================ */
+
+/* s[0..len) *= m, m ∈ {1, 2, 3}.  Возвращает carry — верхний
+   лимб, который caller должен записать в s[len] (гарантируя
+   что там есть место).  Для m == 1 carry всегда 0. */
+static uint64_t mulsmall_carry(uint64_t *s, size_t len, uint64_t m) {
+  if (m == 1) return 0;
+  uint64_t carry = 0;
+  for (size_t i = 0; i < len; i++) {
+    unsigned __int128 p = (unsigned __int128)s[i] * m + carry;
+    s[i] = (uint64_t)p;
+    carry = (uint64_t)(p >> 64);
+  }
+  return carry;
+}
+
+/* s[0..s_len) += a[0..a_len).  Carry распространяется вверх,
+   обрезается на s_len. */
+static void add_into(uint64_t *s, size_t s_len, const uint64_t *a,
+                     size_t a_len) {
+  uint64_t carry = 0;
+  size_t i = 0;
+  for (; i < a_len && i < s_len; i++) {
+    uint64_t t1, t2, c1, c2;
+    c1 = __builtin_add_overflow(s[i], a[i], &t1);
+    c2 = __builtin_add_overflow(t1, carry, &t2);
+    s[i] = t2;
+    carry = c1 | c2;
+  }
+  while (carry && i < s_len) {
+    s[i]++;
+    if (s[i] != 0) carry = 0;
+    i++;
+  }
+}
+
+/* s[0..len) <<= shift, shift ∈ [1, 63].  Верхние shift бит
+   теряются; caller гарантирует что в них нули. */
+static void lshift_inplace(uint64_t *s, size_t len, int shift) {
+  if (shift <= 0) return;
+  int bshift = shift;
+  for (int i = (int)len - 1; i > 0; i--) {
+    s[i] = (s[i] << bshift) | (s[i - 1] >> (64 - bshift));
+  }
+  s[0] <<= bshift;
+}
+
+/* s[0..len) /= m, m ∈ {2, 3, 6}.  Деление точное. */
+static void div_small_raw(uint64_t *s, size_t len, uint64_t m) {
+  uint64_t rem = 0;
+  for (int i = (int)len - 1; i >= 0; i--) {
+    unsigned __int128 v = ((unsigned __int128)rem << 64) | s[i];
+    s[i] = (uint64_t)(v / m);
+    rem = (uint64_t)(v % m);
+  }
+}
+
+/* s[0..k+2) = a0 + m·a1 + m²·a2, m ∈ {1, 2, 3}.
+   a0, a1, a2 — по k лимбов.  Результат занимает k+1 лимбов
+   (старший может быть ненулевым), s[k+1] = 0.
+
+   Horner: s = a2; s = s·m + a1; s = s·m + a0. */
+static void eval_poly(uint64_t *s, const uint64_t *a0, const uint64_t *a1,
+                      const uint64_t *a2, size_t k, uint64_t m) {
+  memcpy(s, a2, k * sizeof(uint64_t));
+  s[k]     = mulsmall_carry(s, k, m);
+  s[k + 1] = 0;
+  add_into(s, k + 2, a1, k);
+  s[k + 1] += mulsmall_carry(s, k + 1, m);
+  add_into(s, k + 2, a0, k);
+}
+
 /* ------------------------------------------------------------
    Умножение мантисс: школьный алгоритм как base case для
    Карацубы.
@@ -343,17 +420,149 @@ void s21_mpf_mul_mant_karatsuba(uint64_t *prod, const uint64_t *a,
     s21_mpf_mul_mant_schoolbook(prod, a, b, n);
     return;
   }
-
-  /* Верхняя оценка полного scratch ~8n; берём 10n + 256. */
+  if (n >= S21_MPF_TOOMCOOK_THRESHOLD && n % 3 == 0) {
+    s21_mpf_mul_mant_toomcook(prod, a, b, n);
+    return;
+  }
+  /* Карацуба. */
   size_t scratch_len = 10 * n + 256;
   uint64_t *scratch = malloc(scratch_len * sizeof(uint64_t));
   if (scratch == NULL) {
-    /* Fallback на schoolbook при OOM. */
     s21_mpf_mul_mant_schoolbook(prod, a, b, n);
     return;
   }
-
   mul_mant_rec(prod, a, b, n, scratch);
+  free(scratch);
+}
+
+/* ============================================================
+   Toom-Cook 3-way (Stage 2: n кратно 3).
+
+   Для a = a0 + a1·B^k + a2·B^(2k), b = b0 + b1·B^k + b2·B^(2k),
+   B = 2^64, k = n/3:
+
+   C(x) = a(x)·b(x), где a(x) = a0 + a1·x + a2·x².
+   Вычисляем C в точках x ∈ {0, 1, 2, 3, ∞}:
+     w0 = C(0)      = a0·b0
+     w1 = C(1)      = (a0+a1+a2)·(b0+b1+b2)
+     w2 = C(2)      = (a0+2a1+4a2)·(b0+2b1+4b2)
+     w3 = C(3)      = (a0+3a1+9a2)·(b0+3b1+9b2)
+     w4 = C(∞)      = a2·b2
+
+   Коэффициенты c0..c4 восстанавливаются формулами, использующими
+   только сложение, вычитание и деление на 2/3/6.  Промежуточные
+   значения неотрицательны.
+
+   Scratch layout на уровень:
+
+     wa1, wa2, wa3:  3·(k+2)
+     wb1, wb2, wb3:  3·(k+2)
+     w0, w1, w2, w3, w4:  5·(2k+4)
+     tmp:            2k+4
+
+   Итого 18k + 36 ≈ 6n + 36 лимбов.  Округляем до 6n + 64. */
+static void mul_mant_toom_rec(uint64_t *prod, const uint64_t *a,
+                              const uint64_t *b, size_t n, uint64_t *scratch) {
+  size_t k = n / 3;
+  size_t L = 2 * k + 2;
+
+  uint64_t *wa1 = scratch;
+  uint64_t *wa2 = wa1 + (k + 2);
+  uint64_t *wa3 = wa2 + (k + 2);
+  uint64_t *wb1 = wa3 + (k + 2);
+  uint64_t *wb2 = wb1 + (k + 2);
+  uint64_t *wb3 = wb2 + (k + 2);
+  uint64_t *w0  = wb3 + (k + 2);
+  uint64_t *w1  = w0 + (2 * k + 4);
+  uint64_t *w2  = w1 + (2 * k + 4);
+  uint64_t *w3  = w2 + (2 * k + 4);
+  uint64_t *w4  = w3 + (2 * k + 4);
+  uint64_t *tmp = w4 + (2 * k + 4);
+
+  /* Оценки в точках 1, 2, 3.  Результат k+1 лимбов. */
+  eval_poly(wa1, a, a + k, a + 2 * k, k, 1);
+  eval_poly(wa2, a, a + k, a + 2 * k, k, 2);
+  eval_poly(wa3, a, a + k, a + 2 * k, k, 3);
+  eval_poly(wb1, b, b + k, b + 2 * k, k, 1);
+  eval_poly(wb2, b, b + k, b + 2 * k, k, 2);
+  eval_poly(wb3, b, b + k, b + 2 * k, k, 3);
+
+  /* Рекурсивные умножения.  w0, w4 — 2k лимбов; w1, w2, w3 — 2k+2. */
+  s21_mpf_mul_mant_karatsuba(w0, a, b, k);
+  memset(w0 + 2 * k, 0, 4 * sizeof(uint64_t));
+  s21_mpf_mul_mant_karatsuba(w4, a + 2 * k, b + 2 * k, k);
+  memset(w4 + 2 * k, 0, 4 * sizeof(uint64_t));
+  s21_mpf_mul_mant_karatsuba(w1, wa1, wb1, k + 1);
+  s21_mpf_mul_mant_karatsuba(w2, wa2, wb2, k + 1);
+  s21_mpf_mul_mant_karatsuba(w3, wa3, wb3, k + 1);
+
+  /* u = w1 − w0 − w4 в w1. */
+  sub_in_place_padded(w1, w0, 2 * k, L);
+  sub_in_place_padded(w1, w4, 2 * k, L);
+
+  /* v = w2 − w0 − 16·w4 в w2. */
+  sub_in_place_padded(w2, w0, 2 * k, L);
+  memcpy(tmp, w4, 2 * k * sizeof(uint64_t));
+  tmp[2 * k]     = 0;
+  tmp[2 * k + 1] = 0;
+  lshift_inplace(tmp, L, 4);         /* tmp = 16·w4 */
+  sub_in_place_padded(w2, tmp, L, L);
+
+  /* w = w3 − w0 − 81·w4 в w3. */
+  sub_in_place_padded(w3, w0, 2 * k, L);
+  memcpy(tmp, w4, 2 * k * sizeof(uint64_t));
+  tmp[2 * k]     = mulsmall_carry(tmp, 2 * k, 81);
+  tmp[2 * k + 1] = 0;
+  sub_in_place_padded(w3, tmp, L, L);
+
+  /* c3 = (w + 3u − 3v) / 6 в w3.  w3 (бывшее w) + 3·w1 (u) − 3·w2 (v). */
+  memcpy(tmp, w1, L * sizeof(uint64_t));
+  mulsmall_carry(tmp, L - 1, 3);      /* tmp = 3u (L-1 лимбов) */
+  /* tmp занимает L лимбов максимум, L-й уже 0.  Дополним до L. */
+  /* Здесь tmp[L-1] уже 0, что корректно. */
+  add_into(w3, L, tmp, L);
+  memcpy(tmp, w2, L * sizeof(uint64_t));
+  mulsmall_carry(tmp, L - 1, 3);
+  sub_in_place_padded(w3, tmp, L, L);
+  div_small_raw(w3, L, 6);            /* w3 = c3 */
+
+  /* c2 = (v − 2u − 6·c3) / 2 в w2. */
+  memcpy(tmp, w1, L * sizeof(uint64_t));
+  mulsmall_carry(tmp, L - 1, 2);
+  sub_in_place_padded(w2, tmp, L, L);
+  memcpy(tmp, w3, L * sizeof(uint64_t));
+  mulsmall_carry(tmp, L - 1, 6);
+  sub_in_place_padded(w2, tmp, L, L);
+  div_small_raw(w2, L, 2);            /* w2 = c2 */
+
+  /* c1 = u − c2 − c3 в w1. */
+  sub_in_place_padded(w1, w2, L, L);
+  sub_in_place_padded(w1, w3, L, L);
+
+  /* Реконструкция: prod = c0 + c1·B^k + c2·B^(2k) + c3·B^(3k) + c4·B^(4k). */
+  memset(prod, 0, 6 * k * sizeof(uint64_t));
+  add_shifted(prod, w0, L, 0,       6 * k);
+  add_shifted(prod, w1, L, k,       6 * k);
+  add_shifted(prod, w2, L, 2 * k,   6 * k);
+  add_shifted(prod, w3, L, 3 * k,   6 * k);
+  add_shifted(prod, w4, L, 4 * k,   6 * k);
+}
+
+/* Публичная точка входа Toom-Cook.  Если n % 3 != 0 или
+   n < S21_MPF_TOOMCOOK_THRESHOLD — откатываемся на Карацубу. */
+void s21_mpf_mul_mant_toomcook(uint64_t *prod, const uint64_t *a,
+                               const uint64_t *b, size_t n) {
+  if (n < S21_MPF_TOOMCOOK_THRESHOLD || n % 3 != 0) {
+    s21_mpf_mul_mant_karatsuba(prod, a, b, n);
+    return;
+  }
+  size_t scratch_len = 6 * n + 64;
+  uint64_t *scratch = malloc(scratch_len * sizeof(uint64_t));
+  if (scratch == NULL) {
+    s21_mpf_mul_mant_schoolbook(prod, a, b, n);
+    return;
+  }
+  mul_mant_toom_rec(prod, a, b, n, scratch);
   free(scratch);
 }
 

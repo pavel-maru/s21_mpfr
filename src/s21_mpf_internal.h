@@ -66,6 +66,8 @@ void s21_mpf_mul_mant_schoolbook(uint64_t *prod, const uint64_t *a,
                                  const uint64_t *b, size_t n);
 void s21_mpf_mul_mant_karatsuba(uint64_t *prod, const uint64_t *a,
                                 const uint64_t *b, size_t n);
+void s21_mpf_mul_mant_toomcook(uint64_t *prod, const uint64_t *a,
+                               const uint64_t *b, size_t n);
 
 /* ------------------------------------------------------------
    Временные mpf-объекты на стеке.
@@ -102,6 +104,10 @@ void s21_mpf_mul_mant_karatsuba(uint64_t *prod, const uint64_t *a,
    crossover примерно на 30–40 лимбах: ниже этого числа
    накладные расходы рекурсии перевешивают выигрыш. */
 #define S21_MPF_KARATSUBA_THRESHOLD 32
+/* Порог переключения Карацубы на Toom-Cook 3-way.  Crossover
+   обычно на n ≈ 96–128 лимбов; берём 96.  Toom-Cook применяется
+   только при n % 3 == 0 (Stage 2); иначе — Карацуба. */
+#define S21_MPF_TOOMCOOK_THRESHOLD 96
 
 typedef struct {
   s21_mpf_t mpf;
