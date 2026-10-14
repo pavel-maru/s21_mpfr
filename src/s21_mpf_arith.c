@@ -22,50 +22,53 @@ static uint64_t *shifted_alloc(size_t count, uint64_t *stack_buf,
   return calloc(count, sizeof(uint64_t));
 }
 
-void s21_mpf_add_raw(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
-  if (x->sign == y->sign) {
-    size_t count = s21_mpf_limbs_for_prec(res->prec);
-    const s21_mpf_t *a = x, *b = y;
-    if (a->exp < b->exp) {
-      const s21_mpf_t *t = a;
-      a = b;
-      b = t;
-    }
-
-    int64_t shift = a->exp - b->exp;
-    uint64_t stack_buf[S21_MPF_STACK_LIMBS];
-    int owned = 0;
-    uint64_t *b_shifted = shifted_alloc(count, stack_buf, &owned);
-    if (shift < (int64_t)count * 64)
-      s21_mpf_shift_right_into(b_shifted, count, b->limbs, count, (int)shift);
-
-    uint64_t carry = 0;
-    for (size_t i = 0; i < count; i++) {
-      uint64_t sum;
-      uint64_t c1 = __builtin_add_overflow(a->limbs[i], b_shifted[i], &sum);
-      uint64_t c2 = __builtin_add_overflow(sum, carry, &sum);
-      res->limbs[i] = sum;
-      carry = c1 | c2;
-    }
-    if (owned) free(b_shifted);
-
-    res->exp = a->exp;
-    res->sign = x->sign;
-    res->kind = S21_MPF_NORMAL;
-
-    if (carry) {
-      uint64_t bit_in = carry;
-      for (int i = (int)count - 1; i >= 0; i--) {
-        uint64_t nb = res->limbs[i] & 1ULL;
-        res->limbs[i] = (res->limbs[i] >> 1) | (bit_in << 63);
-        bit_in = nb;
-      }
-      res->exp += 1;
-    }
-    s21_mpf_normalize(res);
-    return;
+/* Сложение двух операндов одного знака. */
+static void add_same_sign(s21_mpf_t *res, const s21_mpf_t *x,
+                          const s21_mpf_t *y, size_t count) {
+  const s21_mpf_t *a = x, *b = y;
+  if (a->exp < b->exp) {
+    const s21_mpf_t *t = a;
+    a = b;
+    b = t;
   }
 
+  int64_t shift = a->exp - b->exp;
+  uint64_t stack_buf[S21_MPF_STACK_LIMBS];
+  int owned = 0;
+  uint64_t *b_shifted = shifted_alloc(count, stack_buf, &owned);
+  if (shift < (int64_t)count * 64)
+    s21_mpf_shift_right_into(b_shifted, count, b->limbs, count, (int)shift);
+
+  uint64_t carry = 0;
+  for (size_t i = 0; i < count; i++) {
+    uint64_t sum;
+    uint64_t c1 = __builtin_add_overflow(a->limbs[i], b_shifted[i], &sum);
+    uint64_t c2 = __builtin_add_overflow(sum, carry, &sum);
+    res->limbs[i] = sum;
+    carry = c1 | c2;
+  }
+  if (owned) free(b_shifted);
+
+  res->exp  = a->exp;
+  res->sign = x->sign;
+  res->kind = S21_MPF_NORMAL;
+
+  if (carry) {
+    uint64_t bit_in = carry;
+    for (int i = (int)count - 1; i >= 0; i--) {
+      uint64_t nb = res->limbs[i] & 1ULL;
+      res->limbs[i] = (res->limbs[i] >> 1) | (bit_in << 63);
+      bit_in = nb;
+    }
+    res->exp += 1;
+  }
+  s21_mpf_normalize(res);
+}
+
+/* Вычитание |a| - |b| операндов разных знаков.  После выбора
+   a с большим модулем знак результата равен знаку a. */
+static void sub_diff_sign(s21_mpf_t *res, const s21_mpf_t *x,
+                          const s21_mpf_t *y, size_t count) {
   int cmp = s21_mpf_cmp_abs(x, y);
   if (cmp == 0) {
     s21_mpf_set_zero(res, 0);
@@ -74,7 +77,6 @@ void s21_mpf_add_raw(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
 
   const s21_mpf_t *a = (cmp > 0) ? x : y;
   const s21_mpf_t *b = (cmp > 0) ? y : x;
-  size_t count = s21_mpf_limbs_for_prec(res->prec);
 
   int64_t shift = a->exp - b->exp;
   uint64_t stack_buf[S21_MPF_STACK_LIMBS];
@@ -93,10 +95,18 @@ void s21_mpf_add_raw(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
   }
   if (owned) free(b_shifted);
 
-  res->exp = a->exp;
+  res->exp  = a->exp;
   res->sign = a->sign;
   res->kind = S21_MPF_NORMAL;
   s21_mpf_normalize(res);
+}
+
+void s21_mpf_add_raw(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
+  size_t count = s21_mpf_limbs_for_prec(res->prec);
+  if (x->sign == y->sign)
+    add_same_sign(res, x, y, count);
+  else
+    sub_diff_sign(res, x, y, count);
 }
 
 void s21_mpf_sub_raw(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
