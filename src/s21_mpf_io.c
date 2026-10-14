@@ -195,6 +195,113 @@ int s21_mpf_set_str(s21_mpf_t *x, const char *str, int base) {
    get_str
    ============================================================ */
 
+/* Обработка NAN / INF / ZERO.  Возвращает 1, если результат
+   уже записан, 0 — если x нормальное. */
+static int get_str_special(char *buf, size_t bufsize, int *exp_out,
+                           const s21_mpf_t *x) {
+  if (x->kind == S21_MPF_NAN) {
+    if (bufsize < 4) return -1;
+    strcpy(buf, "nan");
+    *exp_out = 0;
+    return 1;
+  }
+  if (x->kind == S21_MPF_INF) {
+    if (bufsize < 5) return -1;
+    strcpy(buf, x->sign ? "-inf" : "inf");
+    *exp_out = 0;
+    return 1;
+  }
+  if (x->kind == S21_MPF_ZERO) {
+    if (bufsize < 3) return -1;
+    strcpy(buf, x->sign ? "-0" : "0");
+    *exp_out = 0;
+    return 1;
+  }
+  return 0;
+}
+
+/* Извлечение n_digits цифр из y ∈ [1, 10) в buf[digits_start..).
+   y изменяется: на выходе это остаток y ∈ [0, 10) после
+   последнего умножения на 10. */
+static void get_str_extract(char *buf, size_t digits_start,
+                            uint32_t n_digits, s21_mpf_t *y, uint32_t wp) {
+  s21_mpf_t ten, tmp;
+  s21_mpf_stack_t tmp_s;
+  s21_mpf_init2(&ten, wp);
+  s21_mpf_init2(&tmp, wp);
+  s21_mpf_stack_init(&tmp_s, wp);
+  s21_mpf_set_ui(&ten, 10);
+
+  for (uint32_t i = 0; i < n_digits; i++) {
+    int d = 0;
+    for (int k = 9; k >= 0; k--) {
+      s21_mpf_set_ui(&tmp_s.mpf, (unsigned long)k);
+      if (s21_mpf_cmp(y, &tmp_s.mpf) >= 0) {
+        d = k;
+        break;
+      }
+    }
+    buf[digits_start + i] = (char)('0' + d);
+    if (d > 0) {
+      s21_mpf_set_ui(&tmp_s.mpf, (unsigned long)d);
+      s21_mpf_sub_raw(y, y, &tmp_s.mpf);
+    }
+    s21_mpf_mul_raw(y, y, &ten);
+  }
+
+  s21_mpf_stack_clear(&tmp_s);
+  s21_mpf_clear(&ten);
+  s21_mpf_clear(&tmp);
+}
+
+/* Решение об округлении вверх.  rem = y после извлечения цифр,
+   лежит в [0, 10).  last_digit — последняя записанная цифра
+   (для ties-to-even).  sign — знак исходного x. */
+static int get_str_should_round_up(const s21_mpf_t *rem,
+                                   char last_digit, int sign,
+                                   s21_mpf_rnd_t rnd, uint32_t wp) {
+  s21_mpf_t five;
+  s21_mpf_init2(&five, wp);
+  s21_mpf_set_ui(&five, 5);
+  int cmp5 = s21_mpf_cmp(rem, &five);
+  s21_mpf_clear(&five);
+
+  int nonzero_rem = !s21_mpf_is_zero(rem);
+
+  switch (rnd) {
+    case S21_MPF_RNDN:
+      if (cmp5 > 0) return 1;
+      if (cmp5 == 0) return ((last_digit - '0') & 1);
+      return 0;
+    case S21_MPF_RNDZ:
+      return 0;
+    case S21_MPF_RNDU:
+      return nonzero_rem && !sign;
+    case S21_MPF_RNDD:
+      return nonzero_rem && sign;
+  }
+  return 0;
+}
+
+/* Инкремент последней цифры с переносом через все 9.
+   При переносе через всю строку (999… → 100…0) увеличивает *E.
+   buf — начало строки цифр (без знака). */
+static void get_str_round_up(char *buf, uint32_t n_digits, int64_t *E) {
+  int i = (int)n_digits - 1;
+  while (i >= 0) {
+    if (buf[i] < '9') {
+      buf[i]++;
+      return;
+    }
+    buf[i] = '0';
+    i--;
+  }
+  /* Перенос через все 9: было 999…9, стало 100…0, E++. */
+  for (uint32_t j = 0; j < n_digits; j++) buf[j] = '0';
+  buf[0] = '1';
+  (*E)++;
+}
+
 int s21_mpf_get_str(char *buf, size_t bufsize, int *exp_out,
                     int base, uint32_t n_digits,
                     const s21_mpf_t *x, s21_mpf_rnd_t rnd) {
@@ -202,25 +309,9 @@ int s21_mpf_get_str(char *buf, size_t bufsize, int *exp_out,
   if (base != 10) return -1;
   if (n_digits == 0) n_digits = 20;
 
-  /* Спецзначения */
-  if (x->kind == S21_MPF_NAN) {
-    if (bufsize < 4) return -1;
-    strcpy(buf, "nan");
-    *exp_out = 0;
-    return 0;
-  }
-  if (x->kind == S21_MPF_INF) {
-    if (bufsize < 5) return -1;
-    strcpy(buf, x->sign ? "-inf" : "inf");
-    *exp_out = 0;
-    return 0;
-  }
-  if (x->kind == S21_MPF_ZERO) {
-    if (bufsize < 3) return -1;
-    strcpy(buf, x->sign ? "-0" : "0");
-    *exp_out = 0;
-    return 0;
-  }
+  int rc_special = get_str_special(buf, bufsize, exp_out, x);
+  if (rc_special > 0) return 0;   /* спецзначение записано */
+  if (rc_special < 0) return -1;  /* буфер мал */
 
   size_t need = (size_t)n_digits + 2; /* sign + digits + '\0' */
   if (bufsize < need) return -1;
@@ -230,17 +321,18 @@ int s21_mpf_get_str(char *buf, size_t bufsize, int *exp_out,
   size_t digits_start = 0;
   if (x->sign) buf[digits_start++] = '-';
 
-  /* E_est ≈ floor(log10(x)); после нормализации y ∈ [1, 10), E — точное. */
+  /* E_est ≈ floor(log10(x)).  После нормализации y ∈ [1, 10) E — точное. */
   int64_t E = (int64_t)((double)x->exp * 0.30102999566398119521);
 
-  s21_mpf_t xw, pow10, y;
+  s21_mpf_t xw, pow10, y, one, ten;
   s21_mpf_init2(&xw, wp);
   s21_mpf_init2(&pow10, wp);
   s21_mpf_init2(&y, wp);
+  s21_mpf_init2(&one, wp);
+  s21_mpf_init2(&ten, wp);
   s21_mpf_set(&xw, x);
-  /* Знак уже учтён в buf (см. digits_start выше).  Для дальнейшей
-     работы нужен модуль: цикл нормализации y в [1, 10) не
-     завершается для отрицательного y (y < 1 всегда истинно). */
+  /* Знак уже учтён в buf.  Для дальнейшей работы нужен модуль:
+     цикл нормализации y ∈ [1, 10) не завершается для y < 0. */
   xw.sign = 0;
 
   if (E >= 0) {
@@ -251,12 +343,8 @@ int s21_mpf_get_str(char *buf, size_t bufsize, int *exp_out,
     s21_mpf_mul_raw(&y, &xw, &pow10);
   }
 
-  s21_mpf_t one, ten;
-  s21_mpf_init2(&one, wp);
-  s21_mpf_init2(&ten, wp);
   s21_mpf_set_ui(&one, 1);
   s21_mpf_set_ui(&ten, 10);
-
   while (s21_mpf_cmp(&y, &ten) >= 0) {
     s21_mpf_div_raw(&y, &y, &ten);
     E++;
@@ -266,75 +354,11 @@ int s21_mpf_get_str(char *buf, size_t bufsize, int *exp_out,
     E--;
   }
 
-  /* Извлечение n_digits цифр: d = floor(y), y = (y - d) * 10. */
-  s21_mpf_stack_t tmp_s;
-  s21_mpf_stack_init(&tmp_s, wp);
+  get_str_extract(buf, digits_start, n_digits, &y, wp);
 
-  for (uint32_t i = 0; i < n_digits; i++) {
-    int d = 0;
-    for (int k = 9; k >= 0; k--) {
-      s21_mpf_set_ui(&tmp_s.mpf, (unsigned long)k);
-      if (s21_mpf_cmp(&y, &tmp_s.mpf) >= 0) {
-        d = k;
-        break;
-      }
-    }
-    buf[digits_start + i] = (char)('0' + d);
-    if (d > 0) {
-      s21_mpf_set_ui(&tmp_s.mpf, (unsigned long)d);
-      s21_mpf_sub_raw(&y, &y, &tmp_s.mpf);
-    }
-    s21_mpf_mul_raw(&y, &y, &ten);
-  }
-  s21_mpf_stack_clear(&tmp_s);
-
-  /* Округление: y ∈ [0, 10) — остаток. */
-  s21_mpf_t five;
-  s21_mpf_init2(&five, wp);
-  s21_mpf_set_ui(&five, 5);
-  int cmp5 = s21_mpf_cmp(&y, &five);
-  s21_mpf_clear(&five);
-
-  int round_up = 0;
-  int nonzero_rem = !s21_mpf_is_zero(&y);
-
-  switch (rnd) {
-    case S21_MPF_RNDN:
-      if (cmp5 > 0)
-        round_up = 1;
-      else if (cmp5 == 0)
-        round_up = ((buf[digits_start + n_digits - 1] - '0') & 1);
-      break;
-    case S21_MPF_RNDZ:
-      round_up = 0;
-      break;
-    case S21_MPF_RNDU:
-      round_up = (nonzero_rem && !x->sign);
-      break;
-    case S21_MPF_RNDD:
-      round_up = (nonzero_rem && x->sign);
-      break;
-  }
-
-  if (round_up) {
-    int i = (int)n_digits - 1;
-    while (i >= 0) {
-      size_t idx = digits_start + (size_t)i;
-      if (buf[idx] < '9') {
-        buf[idx]++;
-        break;
-      }
-      buf[idx] = '0';
-      i--;
-    }
-    if (i < 0) {
-      /* Перенос через все 9: 999… → 100…0, E++. */
-      for (uint32_t j = 0; j < n_digits; j++) {
-        buf[digits_start + j] = '0';
-      }
-      buf[digits_start] = '1';
-      E++;
-    }
+  char last_digit = buf[digits_start + n_digits - 1];
+  if (get_str_should_round_up(&y, last_digit, x->sign, rnd, wp)) {
+    get_str_round_up(buf + digits_start, n_digits, &E);
   }
 
   buf[digits_start + n_digits] = '\0';
