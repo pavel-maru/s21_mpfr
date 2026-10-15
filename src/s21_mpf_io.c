@@ -3,12 +3,38 @@
    ============================================================ */
 
 #include <ctype.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "s21_mpf.h"
 #include "s21_mpf_internal.h"
+
+/* ============================================================
+   Цифры в произвольном основании.
+
+   base ∈ [2, 36], алфавит 0-9a-z (регистронезависимо на входе,
+   строчные на выходе).  Для base ≤ 10 заглавные буквы не
+   являются цифрами (digit_value('A') = 10 ≥ base).
+   ============================================================ */
+
+static int digit_value(char c) {
+  unsigned char uc = (unsigned char)c;
+  if (uc >= '0' && uc <= '9') return uc - '0';
+  if (uc >= 'a' && uc <= 'z') return uc - 'a' + 10;
+  if (uc >= 'A' && uc <= 'Z') return uc - 'A' + 10;
+  return -1;
+}
+
+static char digit_char(int d) {
+  return (char)(d < 10 ? '0' + d : 'a' + d - 10);
+}
+
+static int is_digit_in_base(char c, int base) {
+  int d = digit_value(c);
+  return d >= 0 && d < base;
+}
 
 /* ============================================================
    set_str
@@ -40,28 +66,29 @@ static int parse_special(const char *s, int sign, s21_mpf_t *x) {
   return 0;
 }
 
-/* res = 10^k для k >= 0. res->prec должен быть >= wp. */
-static int pow10_mpf(s21_mpf_t *res, int64_t k, uint32_t wp) {
+/* res = base^k для k >= 0.  res->prec должен быть >= wp. */
+static int pow_base_mpf(s21_mpf_t *res, unsigned base, int64_t k,
+                        uint32_t wp) {
   s21_mpf_set_ui(res, 1);
   if (k == 0) return 0;
 
-  s21_mpf_t base;
-  s21_mpf_init2(&base, wp);
-  s21_mpf_set_ui(&base, 10);
+  s21_mpf_t b;
+  s21_mpf_init2(&b, wp);
+  s21_mpf_set_ui(&b, (unsigned long)base);
 
   while (k > 0) {
-    if (k & 1) s21_mpf_mul_raw(res, res, &base);
+    if (k & 1) s21_mpf_mul_raw(res, res, &b);
     k >>= 1;
-    if (k > 0) s21_mpf_mul_raw(&base, &base, &base);
+    if (k > 0) s21_mpf_mul_raw(&b, &b, &b);
   }
 
-  s21_mpf_clear(&base);
+  s21_mpf_clear(&b);
   return 0;
 }
 
 int s21_mpf_set_str(s21_mpf_t *x, const char *str, int base) {
   if (x == NULL || str == NULL) return -1;
-  if (base != 10) return -1;
+  if (base < 2 || base > 36) return -1;
 
   const char *p = str;
 
@@ -75,33 +102,33 @@ int s21_mpf_set_str(s21_mpf_t *x, const char *str, int base) {
     p++;
   }
 
+  /* Спецзначения разбираются до цифр и во всех базах. */
   if (parse_special(p, sign, x)) return 0;
 
   uint32_t wp = x->prec + 64;
 
-  s21_mpf_t M;
+  s21_mpf_t M, bval;
   s21_mpf_init2(&M, wp);
+  s21_mpf_init2(&bval, wp);
   s21_mpf_set_ui(&M, 0);
+  s21_mpf_set_ui(&bval, (unsigned long)base);
 
   int has_digit = 0;
   int64_t frac_digits = 0;
   int seen_nonzero = 0;
 
-  while (isdigit((unsigned char)*p)) {
+  while (is_digit_in_base(*p, base)) {
     has_digit = 1;
-    int d = *p - '0';
+    int d = digit_value(*p);
     if (d != 0) seen_nonzero = 1;
     if (seen_nonzero) {
-      s21_mpf_t ten, dval;
-      s21_mpf_init2(&ten, wp);
+      s21_mpf_t dval;
       s21_mpf_init2(&dval, wp);
-      s21_mpf_set_ui(&ten, 10);
-      s21_mpf_mul_raw(&M, &M, &ten);
+      s21_mpf_mul_raw(&M, &M, &bval);
       if (d != 0) {
         s21_mpf_set_ui(&dval, (unsigned long)d);
         s21_mpf_add_raw(&M, &M, &dval);
       }
-      s21_mpf_clear(&ten);
       s21_mpf_clear(&dval);
     }
     p++;
@@ -109,21 +136,18 @@ int s21_mpf_set_str(s21_mpf_t *x, const char *str, int base) {
 
   if (*p == '.') {
     p++;
-    while (isdigit((unsigned char)*p)) {
+    while (is_digit_in_base(*p, base)) {
       has_digit = 1;
-      int d = *p - '0';
+      int d = digit_value(*p);
       if (d != 0) seen_nonzero = 1;
       if (seen_nonzero) {
-        s21_mpf_t ten, dval;
-        s21_mpf_init2(&ten, wp);
+        s21_mpf_t dval;
         s21_mpf_init2(&dval, wp);
-        s21_mpf_set_ui(&ten, 10);
-        s21_mpf_mul_raw(&M, &M, &ten);
+        s21_mpf_mul_raw(&M, &M, &bval);
         if (d != 0) {
           s21_mpf_set_ui(&dval, (unsigned long)d);
           s21_mpf_add_raw(&M, &M, &dval);
         }
-        s21_mpf_clear(&ten);
         s21_mpf_clear(&dval);
       }
       frac_digits++;
@@ -133,17 +157,14 @@ int s21_mpf_set_str(s21_mpf_t *x, const char *str, int base) {
 
   if (!has_digit) {
     s21_mpf_clear(&M);
+    s21_mpf_clear(&bval);
     return -1;
   }
 
-  if (!seen_nonzero) {
-    s21_mpf_clear(&M);
-    s21_mpf_set_zero(x, sign);
-    return 0;
-  }
-
+  /* Экспонента e/E — только для base 10.  Для base ≥ 15 'e' —
+     цифра, поэтому она уже была поглощена на этапе целой части. */
   int64_t e_part = 0;
-  if (*p == 'e' || *p == 'E') {
+  if (base == 10 && (*p == 'e' || *p == 'E')) {
     p++;
     int e_sign = 0;
     if (*p == '+') {
@@ -160,34 +181,47 @@ int s21_mpf_set_str(s21_mpf_t *x, const char *str, int base) {
     }
     if (!has_exp_digits) {
       s21_mpf_clear(&M);
+      s21_mpf_clear(&bval);
       return -1;
     }
     if (e_sign) e_part = -e_part;
   }
 
+  /* Проверка хвоста — до ветки !seen_nonzero, чтобы "0x1" в base 16
+     и "0abc" в base 10 отвергались, а "0" и "0.000" оставались
+     валидным нулём. */
   if (*p != '\0') {
     s21_mpf_clear(&M);
+    s21_mpf_clear(&bval);
     return -1;
+  }
+
+  if (!seen_nonzero) {
+    s21_mpf_clear(&M);
+    s21_mpf_clear(&bval);
+    s21_mpf_set_zero(x, sign);
+    return 0;
   }
 
   int64_t E = e_part - frac_digits;
 
   if (E != 0) {
-    s21_mpf_t p10;
-    s21_mpf_init2(&p10, wp);
+    s21_mpf_t pb;
+    s21_mpf_init2(&pb, wp);
     int64_t absE = E < 0 ? -E : E;
-    pow10_mpf(&p10, absE, wp);
+    pow_base_mpf(&pb, (unsigned)base, absE, wp);
     if (E > 0)
-      s21_mpf_mul_raw(&M, &M, &p10);
+      s21_mpf_mul_raw(&M, &M, &pb);
     else
-      s21_mpf_div_raw(&M, &M, &p10);
-    s21_mpf_clear(&p10);
+      s21_mpf_div_raw(&M, &M, &pb);
+    s21_mpf_clear(&pb);
   }
 
   M.sign = sign;
   s21_mpf_set_round(x, &M, S21_MPF_RNDN);
 
   s21_mpf_clear(&M);
+  s21_mpf_clear(&bval);
   return 0;
 }
 
@@ -220,58 +254,60 @@ static int get_str_special(char *buf, size_t bufsize, int *exp_out,
   return 0;
 }
 
-/* Извлечение n_digits цифр из y ∈ [1, 10) в buf[digits_start..).
-   y изменяется: на выходе это остаток y ∈ [0, 10) после
-   последнего умножения на 10. */
+/* Извлечение n_digits цифр по основанию base из y ∈ [1, base)
+   в buf[digits_start..).  y изменяется: на выходе это остаток
+   y ∈ [0, base) после последнего умножения на base. */
 static void get_str_extract(char *buf, size_t digits_start,
-                            uint32_t n_digits, s21_mpf_t *y, uint32_t wp) {
-  s21_mpf_t ten, tmp;
+                            uint32_t n_digits, s21_mpf_t *y,
+                            unsigned base, uint32_t wp) {
+  s21_mpf_t base_val;
   s21_mpf_stack_t tmp_s;
-  s21_mpf_init2(&ten, wp);
-  s21_mpf_init2(&tmp, wp);
+  s21_mpf_init2(&base_val, wp);
   s21_mpf_stack_init(&tmp_s, wp);
-  s21_mpf_set_ui(&ten, 10);
+  s21_mpf_set_ui(&base_val, (unsigned long)base);
 
   for (uint32_t i = 0; i < n_digits; i++) {
     int d = 0;
-    for (int k = 9; k >= 0; k--) {
+    for (int k = (int)base - 1; k >= 0; k--) {
       s21_mpf_set_ui(&tmp_s.mpf, (unsigned long)k);
       if (s21_mpf_cmp(y, &tmp_s.mpf) >= 0) {
         d = k;
         break;
       }
     }
-    buf[digits_start + i] = (char)('0' + d);
+    buf[digits_start + i] = digit_char(d);
     if (d > 0) {
       s21_mpf_set_ui(&tmp_s.mpf, (unsigned long)d);
       s21_mpf_sub_raw(y, y, &tmp_s.mpf);
     }
-    s21_mpf_mul_raw(y, y, &ten);
+    s21_mpf_mul_raw(y, y, &base_val);
   }
 
   s21_mpf_stack_clear(&tmp_s);
-  s21_mpf_clear(&ten);
-  s21_mpf_clear(&tmp);
+  s21_mpf_clear(&base_val);
 }
 
 /* Решение об округлении вверх.  rem = y после извлечения цифр,
-   лежит в [0, 10).  last_digit — последняя записанная цифра
-   (для ties-to-even).  sign — знак исходного x. */
+   лежит в [0, base).  last_digit_val — значение последней
+   записанной цифры (для ties-to-even). */
 static int get_str_should_round_up(const s21_mpf_t *rem,
-                                   char last_digit, int sign,
-                                   s21_mpf_rnd_t rnd, uint32_t wp) {
-  s21_mpf_t five;
-  s21_mpf_init2(&five, wp);
-  s21_mpf_set_ui(&five, 5);
-  int cmp5 = s21_mpf_cmp(rem, &five);
-  s21_mpf_clear(&five);
+                                   int last_digit_val, int sign,
+                                   s21_mpf_rnd_t rnd, unsigned base,
+                                   uint32_t wp) {
+  s21_mpf_t half;
+  s21_mpf_init2(&half, wp);
+  s21_mpf_set_ui(&half, (unsigned long)base);
+  half.exp -= 1; /* base / 2 */
+  s21_mpf_normalize(&half);
+  int cmp_half = s21_mpf_cmp(rem, &half);
+  s21_mpf_clear(&half);
 
   int nonzero_rem = !s21_mpf_is_zero(rem);
 
   switch (rnd) {
     case S21_MPF_RNDN:
-      if (cmp5 > 0) return 1;
-      if (cmp5 == 0) return ((last_digit - '0') & 1);
+      if (cmp_half > 0) return 1;
+      if (cmp_half == 0) return (last_digit_val & 1);
       return 0;
     case S21_MPF_RNDZ:
       return 0;
@@ -283,20 +319,21 @@ static int get_str_should_round_up(const s21_mpf_t *rem,
   return 0;
 }
 
-/* Инкремент последней цифры с переносом через все 9.
-   При переносе через всю строку (999… → 100…0) увеличивает *E.
-   buf — начало строки цифр (без знака). */
-static void get_str_round_up(char *buf, uint32_t n_digits, int64_t *E) {
+/* Инкремент последней цифры с переносом через все (base−1).
+   При переносе через всю строку ((base−1)(base−1)… → 100…0)
+   увеличивает *E. */
+static void get_str_round_up(char *buf, uint32_t n_digits, unsigned base,
+                             int64_t *E) {
   int i = (int)n_digits - 1;
   while (i >= 0) {
-    if (buf[i] < '9') {
-      buf[i]++;
+    int d = digit_value(buf[i]);
+    if (d < (int)base - 1) {
+      buf[i] = digit_char(d + 1);
       return;
     }
     buf[i] = '0';
     i--;
   }
-  /* Перенос через все 9: было 999…9, стало 100…0, E++. */
   for (uint32_t j = 0; j < n_digits; j++) buf[j] = '0';
   buf[0] = '1';
   (*E)++;
@@ -306,68 +343,71 @@ int s21_mpf_get_str(char *buf, size_t bufsize, int *exp_out,
                     int base, uint32_t n_digits,
                     const s21_mpf_t *x, s21_mpf_rnd_t rnd) {
   if (buf == NULL || x == NULL || exp_out == NULL) return -1;
-  if (base != 10) return -1;
+  if (base < 2 || base > 36) return -1;
   if (n_digits == 0) n_digits = 20;
 
   int rc_special = get_str_special(buf, bufsize, exp_out, x);
-  if (rc_special > 0) return 0;   /* спецзначение записано */
-  if (rc_special < 0) return -1;  /* буфер мал */
+  if (rc_special > 0) return 0;
+  if (rc_special < 0) return -1;
 
-  size_t need = (size_t)n_digits + 2; /* sign + digits + '\0' */
+  size_t need = (size_t)n_digits + 2;
   if (bufsize < need) return -1;
 
-  uint32_t wp = n_digits * 4 + 192;
+  /* Рабочая точность: log2(base) бит на цифру плюс 192 запаса. */
+  double log2_base = log((double)base) / log(2.0);
+  uint32_t wp = (uint32_t)((double)n_digits * log2_base) + 192;
 
   size_t digits_start = 0;
   if (x->sign) buf[digits_start++] = '-';
 
-  /* E_est ≈ floor(log10(x)).  После нормализации y ∈ [1, 10) E — точное. */
-  int64_t E = (int64_t)((double)x->exp * 0.30102999566398119521);
+  /* E_est ≈ floor(log_base(x)) = x.exp / log2(base). */
+  int64_t E = (int64_t)((double)x->exp / log2_base);
 
-  s21_mpf_t xw, pow10, y, one, ten;
+  s21_mpf_t xw, powb, y, one, base_val;
   s21_mpf_init2(&xw, wp);
-  s21_mpf_init2(&pow10, wp);
+  s21_mpf_init2(&powb, wp);
   s21_mpf_init2(&y, wp);
   s21_mpf_init2(&one, wp);
-  s21_mpf_init2(&ten, wp);
+  s21_mpf_init2(&base_val, wp);
   s21_mpf_set(&xw, x);
   /* Знак уже учтён в buf.  Для дальнейшей работы нужен модуль:
-     цикл нормализации y ∈ [1, 10) не завершается для y < 0. */
+     цикл нормализации y ∈ [1, base) не завершается для y < 0. */
   xw.sign = 0;
 
   if (E >= 0) {
-    pow10_mpf(&pow10, E, wp);
-    s21_mpf_div_raw(&y, &xw, &pow10);
+    pow_base_mpf(&powb, (unsigned)base, E, wp);
+    s21_mpf_div_raw(&y, &xw, &powb);
   } else {
-    pow10_mpf(&pow10, -E, wp);
-    s21_mpf_mul_raw(&y, &xw, &pow10);
+    pow_base_mpf(&powb, (unsigned)base, -E, wp);
+    s21_mpf_mul_raw(&y, &xw, &powb);
   }
 
   s21_mpf_set_ui(&one, 1);
-  s21_mpf_set_ui(&ten, 10);
-  while (s21_mpf_cmp(&y, &ten) >= 0) {
-    s21_mpf_div_raw(&y, &y, &ten);
+  s21_mpf_set_ui(&base_val, (unsigned long)base);
+  while (s21_mpf_cmp(&y, &base_val) >= 0) {
+    s21_mpf_div_raw(&y, &y, &base_val);
     E++;
   }
   while (s21_mpf_cmp(&y, &one) < 0) {
-    s21_mpf_mul_raw(&y, &y, &ten);
+    s21_mpf_mul_raw(&y, &y, &base_val);
     E--;
   }
 
-  get_str_extract(buf, digits_start, n_digits, &y, wp);
+  get_str_extract(buf, digits_start, n_digits, &y, (unsigned)base, wp);
 
-  char last_digit = buf[digits_start + n_digits - 1];
-  if (get_str_should_round_up(&y, last_digit, x->sign, rnd, wp)) {
-    get_str_round_up(buf + digits_start, n_digits, &E);
+  int last_digit_val = digit_value(buf[digits_start + n_digits - 1]);
+  if (get_str_should_round_up(&y, last_digit_val, x->sign, rnd,
+                              (unsigned)base, wp)) {
+    get_str_round_up(buf + digits_start, n_digits, (unsigned)base, &E);
   }
 
   buf[digits_start + n_digits] = '\0';
   *exp_out = (int)(E + 1);
 
   s21_mpf_clear(&xw);
-  s21_mpf_clear(&pow10);
+  s21_mpf_clear(&powb);
   s21_mpf_clear(&y);
   s21_mpf_clear(&one);
-  s21_mpf_clear(&ten);
+  s21_mpf_clear(&base_val);
   return 0;
 }

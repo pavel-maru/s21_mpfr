@@ -3260,7 +3260,7 @@ static void test_set_str(void) {
   ASSERT(s21_mpf_set_str(&x, "1e", 10) == -1, "set_str: 1e");
   ASSERT(s21_mpf_set_str(&x, "1e+", 10) == -1, "set_str: 1e+");
   ASSERT(s21_mpf_set_str(&x, "1.2.3", 10) == -1, "set_str: 1.2.3");
-  ASSERT(s21_mpf_set_str(&x, "3.14", 16) == -1, "set_str: base 16 not yet");
+  ASSERT(s21_mpf_set_str(&x, "g", 16) == -1, "set_str: 'g' in base 16");
   ASSERT(s21_mpf_set_str(NULL, "1", 10) == -1, "set_str: NULL x");
   ASSERT(s21_mpf_set_str(&x, NULL, 10) == -1, "set_str: NULL str");
 
@@ -3393,7 +3393,7 @@ static void test_get_str(void) {
          "get_str: NULL exp_out");
   ASSERT(s21_mpf_get_str(buf, 10, &e, 10, 5, NULL, S21_MPF_RNDN) == -1,
          "get_str: NULL x");
-  ASSERT(s21_mpf_get_str(buf, 10, &e, 16, 5, &x, S21_MPF_RNDN) == -1,
+  ASSERT(s21_mpf_get_str(buf, 10, &e, 1, 5, &x, S21_MPF_RNDN) == -1,
          "get_str: base 16");
   ASSERT(s21_mpf_get_str(buf, 2, &e, 10, 5, &x, S21_MPF_RNDN) == -1,
          "get_str: tiny buffer");
@@ -3477,6 +3477,221 @@ static double measure_ulp_gap(unary_fn_t fn, double arg, uint32_t N) {
   s21_mpf_clear(&r_hi_N);
   s21_mpf_clear(&diff);
   return gap;
+}
+
+static void test_base_conversion(void) {
+  s21_mpf_t x, y, e, check;
+  char buf[128];
+  int exp_out;
+
+  s21_mpf_init2(&x, 256);
+  s21_mpf_init2(&y, 256);
+  s21_mpf_init2(&e, 256);
+  s21_mpf_init2(&check, 256);
+
+  /* ---------- set_str: base 2 ---------- */
+
+  ASSERT(s21_mpf_set_str(&x, "101", 2) == 0, "set_str: '101' base 2");
+  s21_mpf_set_ui(&e, 5);
+  ASSERT(s21_mpf_cmp(&x, &e) == 0, "'101' base 2 = 5");
+
+  ASSERT(s21_mpf_set_str(&x, "-101", 2) == 0, "set_str: '-101' base 2");
+  s21_mpf_set_si(&e, -5);
+  ASSERT(s21_mpf_cmp(&x, &e) == 0, "'-101' base 2 = -5");
+
+  ASSERT(s21_mpf_set_str(&x, "1.1", 2) == 0, "set_str: '1.1' base 2");
+  s21_mpf_set_d(&e, 1.5);
+  ASSERT(s21_mpf_cmp(&x, &e) == 0, "'1.1' base 2 = 1.5");
+
+  ASSERT(s21_mpf_set_str(&x, "0.1", 2) == 0, "set_str: '0.1' base 2");
+  s21_mpf_set_d(&e, 0.5);
+  ASSERT(s21_mpf_cmp(&x, &e) == 0, "'0.1' base 2 = 0.5");
+
+  ASSERT(s21_mpf_set_str(&x, "0", 2) == 0, "set_str: '0' base 2");
+  ASSERT(s21_mpf_is_zero(&x), "'0' base 2 = 0");
+
+  ASSERT(s21_mpf_set_str(&x, "2", 2) == -1, "set_str: '2' base 2 → -1");
+  ASSERT(s21_mpf_set_str(&x, "102", 2) == -1,
+         "set_str: '102' base 2 → -1 (цифра '2' вне базы)");
+
+  /* ---------- set_str: base 8 ---------- */
+
+  ASSERT(s21_mpf_set_str(&x, "17", 8) == 0, "set_str: '17' base 8");
+  s21_mpf_set_ui(&e, 15);
+  ASSERT(s21_mpf_cmp(&x, &e) == 0, "'17' base 8 = 15");
+
+  ASSERT(s21_mpf_set_str(&x, "777", 8) == 0, "set_str: '777' base 8");
+  s21_mpf_set_ui(&e, 511);
+  ASSERT(s21_mpf_cmp(&x, &e) == 0, "'777' base 8 = 511");
+
+  ASSERT(s21_mpf_set_str(&x, "0.4", 8) == 0, "set_str: '0.4' base 8");
+  s21_mpf_set_d(&e, 0.5);
+  ASSERT(s21_mpf_cmp(&x, &e) == 0, "'0.4' base 8 = 0.5");
+
+  ASSERT(s21_mpf_set_str(&x, "8", 8) == -1, "set_str: '8' base 8 → -1");
+
+  /* ---------- set_str: base 16 ---------- */
+
+  ASSERT(s21_mpf_set_str(&x, "ff", 16) == 0, "set_str: 'ff' base 16");
+  s21_mpf_set_ui(&e, 255);
+  ASSERT(s21_mpf_cmp(&x, &e) == 0, "'ff' base 16 = 255");
+
+  ASSERT(s21_mpf_set_str(&x, "FF", 16) == 0, "set_str: 'FF' base 16");
+  ASSERT(s21_mpf_cmp(&x, &e) == 0,
+         "'FF' base 16 = 255 (регистронезависимо)");
+
+  ASSERT(s21_mpf_set_str(&x, "1.8", 16) == 0, "set_str: '1.8' base 16");
+  s21_mpf_set_d(&e, 1.5);
+  ASSERT(s21_mpf_cmp(&x, &e) == 0, "'1.8' base 16 = 1.5");
+
+  ASSERT(s21_mpf_set_str(&x, "-abc", 16) == 0, "set_str: '-abc' base 16");
+  s21_mpf_set_si(&e, -2748);
+  ASSERT(s21_mpf_cmp(&x, &e) == 0, "'-abc' base 16 = -2748");
+
+  ASSERT(s21_mpf_set_str(&x, "dead", 16) == 0, "set_str: 'dead' base 16");
+  s21_mpf_set_ui(&e, 57005);
+  ASSERT(s21_mpf_cmp(&x, &e) == 0, "'dead' base 16 = 57005");
+
+  /* В base 16 'e' — цифра, а не экспонента. */
+  ASSERT(s21_mpf_set_str(&x, "1e2", 16) == 0, "set_str: '1e2' base 16");
+  s21_mpf_set_ui(&e, 482);
+  ASSERT(s21_mpf_cmp(&x, &e) == 0, "'1e2' base 16 = 482, не 100");
+
+  /* Префикс 0x не принимается. */
+  ASSERT(s21_mpf_set_str(&x, "0x1", 16) == -1,
+         "set_str: '0x1' base 16 → -1");
+  ASSERT(s21_mpf_set_str(&x, "g", 16) == -1, "set_str: 'g' base 16 → -1");
+
+  /* ---------- set_str: base 36 ---------- */
+
+  ASSERT(s21_mpf_set_str(&x, "z", 36) == 0, "set_str: 'z' base 36");
+  s21_mpf_set_ui(&e, 35);
+  ASSERT(s21_mpf_cmp(&x, &e) == 0, "'z' base 36 = 35");
+
+  ASSERT(s21_mpf_set_str(&x, "10", 36) == 0, "set_str: '10' base 36");
+  s21_mpf_set_ui(&e, 36);
+  ASSERT(s21_mpf_cmp(&x, &e) == 0, "'10' base 36 = 36");
+
+  ASSERT(s21_mpf_set_str(&x, "zz", 36) == 0, "set_str: 'zz' base 36");
+  s21_mpf_set_ui(&e, 1295);
+  ASSERT(s21_mpf_cmp(&x, &e) == 0, "'zz' base 36 = 1295");
+
+  /* ---------- set_str: невалидные base ---------- */
+
+  ASSERT(s21_mpf_set_str(&x, "1", 0) == -1, "set_str: base 0 → -1");
+  ASSERT(s21_mpf_set_str(&x, "1", 1) == -1, "set_str: base 1 → -1");
+  ASSERT(s21_mpf_set_str(&x, "1", 37) == -1, "set_str: base 37 → -1");
+  ASSERT(s21_mpf_set_str(&x, "1", -5) == -1, "set_str: base -5 → -1");
+
+  /* ---------- set_str: спецзначения во всех базах ---------- */
+
+  ASSERT(s21_mpf_set_str(&x, "inf", 16) == 0, "set_str: 'inf' base 16");
+  ASSERT(s21_mpf_is_inf(&x) && x.sign == 0, "'inf' base 16 = +inf");
+
+  ASSERT(s21_mpf_set_str(&x, "-inf", 2) == 0, "set_str: '-inf' base 2");
+  ASSERT(s21_mpf_is_inf(&x) && x.sign == 1, "'-inf' base 2 = -inf");
+
+  ASSERT(s21_mpf_set_str(&x, "nan", 36) == 0, "set_str: 'nan' base 36");
+  ASSERT(s21_mpf_is_nan(&x), "'nan' base 36 = NaN");
+
+  /* ---------- get_str: base 2 ---------- */
+
+  s21_mpf_set_ui(&x, 5);
+  ASSERT(s21_mpf_get_str(buf, sizeof(buf), &exp_out, 2, 5, &x,
+                         S21_MPF_RNDN) == 0, "get_str: 5 base 2");
+  ASSERT(strcmp(buf, "10100") == 0, "get_str: 5 base 2 = '10100'");
+  ASSERT(exp_out == 3, "get_str: 5 base 2 exp = 3");
+
+  s21_mpf_set_d(&x, 0.5);
+  ASSERT(s21_mpf_get_str(buf, sizeof(buf), &exp_out, 2, 3, &x,
+                         S21_MPF_RNDN) == 0, "get_str: 0.5 base 2");
+  ASSERT(strcmp(buf, "100") == 0, "get_str: 0.5 base 2 = '100'");
+  ASSERT(exp_out == 0, "get_str: 0.5 base 2 exp = 0");
+
+  /* ---------- get_str: base 8 ---------- */
+
+  s21_mpf_set_ui(&x, 15);
+  ASSERT(s21_mpf_get_str(buf, sizeof(buf), &exp_out, 8, 3, &x,
+                         S21_MPF_RNDN) == 0, "get_str: 15 base 8");
+  ASSERT(strcmp(buf, "170") == 0, "get_str: 15 base 8 = '170'");
+  ASSERT(exp_out == 2, "get_str: 15 base 8 exp = 2");
+
+  /* ---------- get_str: base 16 ---------- */
+
+  s21_mpf_set_ui(&x, 255);
+  ASSERT(s21_mpf_get_str(buf, sizeof(buf), &exp_out, 16, 5, &x,
+                         S21_MPF_RNDN) == 0, "get_str: 255 base 16");
+  ASSERT(strcmp(buf, "ff000") == 0, "get_str: 255 base 16 = 'ff000'");
+  ASSERT(exp_out == 2, "get_str: 255 base 16 exp = 2");
+
+  s21_mpf_set_ui(&x, 16);
+  ASSERT(s21_mpf_get_str(buf, sizeof(buf), &exp_out, 16, 3, &x,
+                         S21_MPF_RNDN) == 0, "get_str: 16 base 16");
+  ASSERT(strcmp(buf, "100") == 0, "get_str: 16 base 16 = '100'");
+  ASSERT(exp_out == 2, "get_str: 16 base 16 exp = 2");
+
+  s21_mpf_set_si(&x, -255);
+  ASSERT(s21_mpf_get_str(buf, sizeof(buf), &exp_out, 16, 3, &x,
+                         S21_MPF_RNDN) == 0, "get_str: -255 base 16");
+  ASSERT(strcmp(buf, "-ff0") == 0, "get_str: -255 base 16 = '-ff0'");
+
+  /* ---------- get_str: base 36 ---------- */
+
+  s21_mpf_set_ui(&x, 1295);
+  ASSERT(s21_mpf_get_str(buf, sizeof(buf), &exp_out, 36, 3, &x,
+                         S21_MPF_RNDN) == 0, "get_str: 1295 base 36");
+  ASSERT(strcmp(buf, "zz0") == 0, "get_str: 1295 base 36 = 'zz0'");
+  ASSERT(exp_out == 2, "get_str: 1295 base 36 exp = 2");
+
+  /* ---------- Round-trip: get_str → set_str ---------- */
+
+  s21_mpf_set_ui(&x, 4095);
+  ASSERT(s21_mpf_get_str(buf, sizeof(buf), &exp_out, 16, 3, &x,
+                         S21_MPF_RNDN) == 0, "get_str: 4095 base 16");
+  ASSERT(strcmp(buf, "fff") == 0, "get_str: 4095 base 16 = 'fff'");
+  ASSERT(s21_mpf_set_str(&y, buf, 16) == 0, "set_str: round-trip 4095");
+  s21_mpf_set_ui(&check, 4095);
+  ASSERT(s21_mpf_cmp(&y, &check) == 0, "round-trip 4095 base 16");
+
+  /* Round-trip для base 8: 511 = "777". */
+  s21_mpf_set_ui(&x, 511);
+  ASSERT(s21_mpf_get_str(buf, sizeof(buf), &exp_out, 8, 3, &x,
+                         S21_MPF_RNDN) == 0, "get_str: 511 base 8");
+  ASSERT(strcmp(buf, "777") == 0, "get_str: 511 base 8 = '777'");
+  ASSERT(s21_mpf_set_str(&y, buf, 8) == 0, "set_str: round-trip 511");
+  s21_mpf_set_ui(&check, 511);
+  ASSERT(s21_mpf_cmp(&y, &check) == 0, "round-trip 511 base 8");
+
+  /* ---------- get_str: спецзначения во всех базах ---------- */
+
+  s21_mpf_set_nan(&x);
+  ASSERT(s21_mpf_get_str(buf, sizeof(buf), &exp_out, 16, 5, &x,
+                         S21_MPF_RNDN) == 0, "get_str: NaN base 16");
+  ASSERT(strcmp(buf, "nan") == 0, "get_str: NaN base 16 = 'nan'");
+
+  s21_mpf_set_inf(&x, 1);
+  ASSERT(s21_mpf_get_str(buf, sizeof(buf), &exp_out, 8, 5, &x,
+                         S21_MPF_RNDN) == 0, "get_str: -inf base 8");
+  ASSERT(strcmp(buf, "-inf") == 0, "get_str: -inf base 8 = '-inf'");
+
+  s21_mpf_set_zero(&x, 0);
+  ASSERT(s21_mpf_get_str(buf, sizeof(buf), &exp_out, 2, 5, &x,
+                         S21_MPF_RNDN) == 0, "get_str: 0 base 2");
+  ASSERT(strcmp(buf, "0") == 0, "get_str: 0 base 2 = '0'");
+
+  /* ---------- get_str: невалидные base ---------- */
+
+  s21_mpf_set_ui(&x, 5);
+  ASSERT(s21_mpf_get_str(buf, sizeof(buf), &exp_out, 1, 5, &x,
+                         S21_MPF_RNDN) == -1, "get_str: base 1 → -1");
+  ASSERT(s21_mpf_get_str(buf, sizeof(buf), &exp_out, 37, 5, &x,
+                         S21_MPF_RNDN) == -1, "get_str: base 37 → -1");
+
+  s21_mpf_clear(&x);
+  s21_mpf_clear(&y);
+  s21_mpf_clear(&e);
+  s21_mpf_clear(&check);
+  printf("[ok] base conversion (2/8/16/36)\n");
 }
 
 static void test_ulp_diagnostics(void) {
@@ -3573,6 +3788,7 @@ int main(void) {
       {"set_prec_round",                   test_set_prec_round},
       {"set_str",                          test_set_str},
       {"get_str",                          test_get_str},
+      {"base conversion (2/8/16/36)",      test_base_conversion},
       {"ulp diagnostics",                  test_ulp_diagnostics},
   };
   const size_t n = sizeof(tests) / sizeof(tests[0]);
