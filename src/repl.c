@@ -146,25 +146,48 @@ typedef struct {
 } binary_entry_t;
 
 static const unary_entry_t unary_table[] = {
-    { "sqrt", s21_mpf_sqrt },
-    { "exp",  s21_mpf_exp  },
-    { "log",  s21_mpf_log  },
-    { "sin",  wrap_sin     },
-    { "cos",  wrap_cos     },
-    { "tan",  wrap_tan     },
-    { "atan", wrap_atan    },
-    { "asin", wrap_asin    },
-    { "acos", wrap_acos    },
-    { "abs",  wrap_abs     },
-    { "neg",  wrap_neg     },
+    /* Элементарные */
+    { "sqrt",   s21_mpf_sqrt   },
+    { "cbrt",   s21_mpf_cbrt   },
+    { "exp",    s21_mpf_exp    },
+    { "expm1",  s21_mpf_expm1  },
+    { "log",    s21_mpf_log    },
+    { "log1p",  s21_mpf_log1p  },
+    { "log2",   s21_mpf_log2   },
+    { "log10",  s21_mpf_log10  },
+    /* Тригонометрия */
+    { "sin",    wrap_sin       },
+    { "cos",    wrap_cos       },
+    { "tan",    wrap_tan       },
+    { "atan",   wrap_atan      },
+    { "asin",   wrap_asin      },
+    { "acos",   wrap_acos      },
+    /* Гиперболические */
+    { "sinh",   s21_mpf_sinh   },
+    { "cosh",   s21_mpf_cosh   },
+    { "tanh",   s21_mpf_tanh   },
+    { "asinh",  s21_mpf_asinh  },
+    { "acosh",  s21_mpf_acosh  },
+    { "atanh",  s21_mpf_atanh  },
+    /* Округление */
+    { "trunc",  s21_mpf_trunc  },
+    { "floor",  s21_mpf_floor  },
+    { "ceil",   s21_mpf_ceil   },
+    { "round",  s21_mpf_round  },
+    /* Прочее */
+    { "abs",    wrap_abs       },
+    { "neg",    wrap_neg       },
 };
 static const size_t unary_count = sizeof(unary_table) / sizeof(unary_table[0]);
 
 static const binary_entry_t binary_table[] = {
-    { "add", s21_mpf_add },
-    { "sub", s21_mpf_sub },
-    { "mul", s21_mpf_mul },
-    { "div", s21_mpf_div },
+    { "add",   s21_mpf_add   },
+    { "sub",   s21_mpf_sub   },
+    { "mul",   s21_mpf_mul   },
+    { "div",   s21_mpf_div   },
+    { "pow",   s21_mpf_pow   },
+    { "fmod",  s21_mpf_fmod  },
+    { "hypot", s21_mpf_hypot },
 };
 static const size_t binary_count =
     sizeof(binary_table) / sizeof(binary_table[0]);
@@ -175,7 +198,10 @@ static const size_t binary_count =
 
 static uint32_t g_default_prec = 256;
 static uint32_t g_dec_digits = 20;
-static bool g_hex_output = false;
+/* База вывода: 10 — десятичный через get_str, 16 — hex-мантисса
+   через s21_mpf_print (полная, точная), 8 и 2 — через get_str
+   в формате <sign>.<digits>p<exp-1>. */
+static int g_output_base = 10;
 static bool g_interactive = false;
 
 /* ------------------------------------------------------------
@@ -274,11 +300,53 @@ static void print_dec(const s21_mpf_t *x, uint32_t n_digits) {
   printf("%s\n", out);
 }
 
+/* Вывод в base != 10 через get_str в формате hexfloat-подобном:
+   <sign>.<digits>p<exp-1>.  Trailing zeros обрезаются.  Для base 2
+   даёт бинарную мантиссу, для base 8 — восьмеричную. */
+static void print_in_base(const s21_mpf_t *x, int base, uint32_t n_digits) {
+  if (n_digits == 0) n_digits = 20;
+  if (n_digits > 1000) n_digits = 1000;
+
+  char buf[1024];
+  int e = 0;
+  int rc = s21_mpf_get_str(buf, sizeof(buf), &e, base, n_digits, x,
+                           S21_MPF_RNDN);
+  if (rc != 0) {
+    printf("(get_str error)\n");
+    return;
+  }
+
+  if (x->kind != S21_MPF_NORMAL) {
+    printf("%s\n", buf);
+    return;
+  }
+
+  const char *p = buf;
+  const char *sign = "";
+  if (*p == '-') {
+    sign = "-";
+    p++;
+  }
+
+  int len = (int)strlen(p);
+  while (len > 1 && p[len - 1] == '0') len--;
+
+  printf("%s%c", sign, p[0]);
+  if (len > 1) {
+    printf(".");
+    fwrite(p + 1, 1, (size_t)(len - 1), stdout);
+  }
+  printf("p%+d\n", e - 1);
+}
+
 static void print_value(const s21_mpf_t *x) {
-  if (g_hex_output)
-    s21_mpf_print(x);
-  else
-    print_dec(x, g_dec_digits);
+  switch (g_output_base) {
+    case 10: print_dec(x, g_dec_digits);                break;
+    case 16: s21_mpf_print(x);                          break;
+    case 8:
+    case 2:  print_in_base(x, g_output_base, g_dec_digits); break;
+    default: print_dec(x, g_dec_digits);                break;
+  }
 }
 
 static void prompt(const char *text) {
@@ -393,22 +461,31 @@ static void cmd_help(void) {
   printf("Бинарные: ");
   for (size_t i = 0; i < binary_count; i++)
     printf("%s%s", binary_table[i].name, i + 1 < binary_count ? " " : "\n");
-  printf("Константы: pi [prec]\n");
-  printf("Прочее:    setprec <n>[d], prec, show <num>, hex, dec [n],\n");
+  printf("Константы: pi [prec], ln2 [prec], e [prec]\n");
+  printf("Прочее:    setprec <n>[d], prec, show <num>, dec [n],\n");
+  printf("           hex [num], oct [num], bin [num],\n");
   printf("           quit/exit/q, help/?\n");
   printf("Формат:    <func> [arg1] [arg2] [prec]\n");
   printf("           <number>          == show <number>\n");
   printf("Точность:  число бит (например 256), либо <n>d — десятичных\n");
   printf("           цифр (например 77d == 256 бит).\n");
   printf("Аргументы: парсятся через s21_mpf_set_str (без double),\n");
-  printf("           поддерживают '3.14', '1.5e-3', 'inf', 'nan'.\n");
+  printf("           поддерживают '3.14', '1.5e-3', '1e30', 'inf', 'nan'.\n");
   printf("Вывод:     dec      — десятичный через s21_mpf_get_str,\n");
   printf("                      по умолчанию 20 значащих цифр;\n");
   printf("           dec <n>  — установить число значащих цифр (1..1000);\n");
-  printf("           hex      — полная мантисса в hex.\n");
+  printf("           hex      — полная мантисса в hex;\n");
+  printf("           oct, bin — вывод в base 8 / 2 в формате\n");
+  printf("                      <sign>.<digits>p<exp>.\n");
+  printf("           Без аргумента — просто переключают базу,\n");
+  printf("           с числом — переключают и сразу показывают:\n");
+  printf("           hex 255 == 'вывод: hex' + '255'.\n");
   printf("π:         sin/cos/tan/atan/asin/acos кэшируют π на текущую\n");
   printf("           точность; при setprec кэш сбрасывается.\n");
   printf("Примеры:   sin 1.5 256\n");
+  printf("           pow 2 0.5 512\n");
+  printf("           cbrt 27\n");
+  printf("           bin 5\n");
   printf("           show 3.14159265358979323846\n");
   printf("           1e-30\n");
 }
@@ -424,6 +501,22 @@ static void cmd_pi(const char *prec_tok) {
   s21_mpf_t r;
   s21_mpf_init2(&r, prec);
   int rc = s21_mpf_pi(&r);
+  if (rc == 0) print_value(&r);
+  s21_mpf_clear(&r);
+}
+
+static void cmd_const(int (*fn)(s21_mpf_t *), const char *name,
+                      const char *prec_tok) {
+  uint32_t prec = g_default_prec;
+  if (prec_tok != NULL) {
+    if (!parse_prec(prec_tok, &prec)) {
+      fprintf(stderr, "%s: некорректная точность '%s'\n", name, prec_tok);
+      return;
+    }
+  }
+  s21_mpf_t r;
+  s21_mpf_init2(&r, prec);
+  int rc = fn(&r);
   if (rc == 0) print_value(&r);
   s21_mpf_clear(&r);
 }
@@ -595,8 +688,23 @@ static bool process_line(char *line) {
   }
 
   if (strcmp(cmd, "hex") == 0) {
-    g_hex_output = true;
-    printf("вывод: hex\n");
+    g_output_base = 16;
+    if (n >= 2) cmd_show(tok[1]);
+    else printf("вывод: hex (полная мантисса)\n");
+    return true;
+  }
+
+  if (strcmp(cmd, "oct") == 0) {
+    g_output_base = 8;
+    if (n >= 2) cmd_show(tok[1]);
+    else printf("вывод: oct (base 8, <sign>.<digits>p<exp>)\n");
+    return true;
+  }
+
+  if (strcmp(cmd, "bin") == 0) {
+    g_output_base = 2;
+    if (n >= 2) cmd_show(tok[1]);
+    else printf("вывод: bin (base 2, <sign>.<digits>p<exp>)\n");
     return true;
   }
 
@@ -609,13 +717,23 @@ static bool process_line(char *line) {
       }
       g_dec_digits = d;
     }
-    g_hex_output = false;
+    g_output_base = 10;
     printf("вывод: dec (%u digits)\n", g_dec_digits);
     return true;
   }
 
   if (strcmp(cmd, "pi") == 0) {
     cmd_pi(n >= 2 ? tok[1] : NULL);
+    return true;
+  }
+
+  if (strcmp(cmd, "ln2") == 0) {
+    cmd_const(s21_mpf_ln2, "ln2", n >= 2 ? tok[1] : NULL);
+    return true;
+  }
+
+  if (strcmp(cmd, "e") == 0) {
+    cmd_const(s21_mpf_e, "e", n >= 2 ? tok[1] : NULL);
     return true;
   }
 
