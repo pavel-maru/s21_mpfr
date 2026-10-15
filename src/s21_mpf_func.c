@@ -535,24 +535,202 @@ int s21_mpf_log10(s21_mpf_t *res, const s21_mpf_t *x) {
    Утилиты тригонометрии
    ============================================================ */
 
-static void s21_mpf_trunc(s21_mpf_t *res, const s21_mpf_t *x) {
+/* ============================================================
+   Округление и остаток.
+
+   s21_mpf_trunc — публичная, экспонирована в s21_mpf.h.
+   s21_mpf_round_nearest — внутренняя, используется в reduce_2pi
+   (тригонометрия).
+   ============================================================ */
+
+int s21_mpf_trunc(s21_mpf_t *res, const s21_mpf_t *x) {
+  if (res == NULL || x == NULL) return -1;
   if (x->kind != S21_MPF_NORMAL) {
     s21_mpf_set(res, x);
-    return;
+    return 0;
   }
   if (x->exp <= 0) {
     s21_mpf_set_zero(res, x->sign);
-    return;
+    return 0;
   }
 
   s21_mpf_set(res, x);
-  if (res->exp >= (int64_t)res->prec) return;
+  if (res->exp >= (int64_t)res->prec) return 0;
 
   uint32_t keep = (uint32_t)res->exp;
   for (uint32_t i = 0; i < res->prec - keep; i++) s21_mpf_set_bit(res, i, 0);
   s21_mpf_normalize(res);
+  return 0;
 }
 
+/* Есть ли у x ненулевая дробная часть?
+   Предполагается x->kind == S21_MPF_NORMAL. */
+static int mpf_has_fraction(const s21_mpf_t *x) {
+  if (x->exp <= 0) return 1;
+  if (x->exp >= (int64_t)x->prec) return 0;
+  uint32_t keep = (uint32_t)x->exp;
+  for (uint32_t i = 0; i < x->prec - keep; i++) {
+    if (s21_mpf_get_bit(x, i)) return 1;
+  }
+  return 0;
+}
+
+int s21_mpf_floor(s21_mpf_t *res, const s21_mpf_t *x) {
+  if (res == NULL || x == NULL) return -1;
+  if (x->kind != S21_MPF_NORMAL) {
+    s21_mpf_set(res, x);
+    return 0;
+  }
+
+  uint32_t wp = res->prec + 64;
+
+  s21_mpf_stack_t t_s, one_s;
+  s21_mpf_stack_init(&t_s, wp);
+  s21_mpf_stack_init(&one_s, wp);
+
+  s21_mpf_set(&t_s.mpf, x);
+  int has_frac = mpf_has_fraction(&t_s.mpf);
+
+  s21_mpf_trunc(&t_s.mpf, &t_s.mpf);
+
+  if (has_frac && x->sign) {
+    s21_mpf_set_ui(&one_s.mpf, 1);
+    s21_mpf_sub_raw(&t_s.mpf, &t_s.mpf, &one_s.mpf);
+  }
+  s21_mpf_set(res, &t_s.mpf);
+
+  s21_mpf_stack_clear(&t_s);
+  s21_mpf_stack_clear(&one_s);
+  return 0;
+}
+
+int s21_mpf_ceil(s21_mpf_t *res, const s21_mpf_t *x) {
+  if (res == NULL || x == NULL) return -1;
+  if (x->kind != S21_MPF_NORMAL) {
+    s21_mpf_set(res, x);
+    return 0;
+  }
+
+  uint32_t wp = res->prec + 64;
+
+  s21_mpf_stack_t t_s, one_s;
+  s21_mpf_stack_init(&t_s, wp);
+  s21_mpf_stack_init(&one_s, wp);
+
+  s21_mpf_set(&t_s.mpf, x);
+  int has_frac = mpf_has_fraction(&t_s.mpf);
+
+  s21_mpf_trunc(&t_s.mpf, &t_s.mpf);
+
+  if (has_frac && !x->sign) {
+    s21_mpf_set_ui(&one_s.mpf, 1);
+    s21_mpf_add_raw(&t_s.mpf, &t_s.mpf, &one_s.mpf);
+  }
+  s21_mpf_set(res, &t_s.mpf);
+
+  s21_mpf_stack_clear(&t_s);
+  s21_mpf_stack_clear(&one_s);
+  return 0;
+}
+
+int s21_mpf_round(s21_mpf_t *res, const s21_mpf_t *x) {
+  if (res == NULL || x == NULL) return -1;
+  if (x->kind != S21_MPF_NORMAL) {
+    s21_mpf_set(res, x);
+    return 0;
+  }
+
+  uint32_t wp = res->prec + 64;
+
+  s21_mpf_stack_t t_s, half_s;
+  s21_mpf_stack_init(&t_s, wp);
+  s21_mpf_stack_init(&half_s, wp);
+
+  s21_mpf_set(&t_s.mpf, x);
+  s21_mpf_set_d(&half_s.mpf, 0.5);
+  if (x->sign) half_s.mpf.sign = 1;
+
+  s21_mpf_add_raw(&t_s.mpf, &t_s.mpf, &half_s.mpf);
+  s21_mpf_trunc(&t_s.mpf, &t_s.mpf);
+  s21_mpf_set(res, &t_s.mpf);
+
+  s21_mpf_stack_clear(&t_s);
+  s21_mpf_stack_clear(&half_s);
+  return 0;
+}
+
+int s21_mpf_fmod(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
+  if (res == NULL || x == NULL || y == NULL) return -1;
+
+  if (x->kind == S21_MPF_NAN || y->kind == S21_MPF_NAN) {
+    s21_mpf_set_nan(res);
+    return 0;
+  }
+  if (x->kind == S21_MPF_INF) {
+    s21_mpf_set_nan(res);
+    return 0;
+  }
+  if (y->kind == S21_MPF_INF) {
+    s21_mpf_set(res, x);
+    return 0;
+  }
+  if (y->kind == S21_MPF_ZERO) {
+    s21_mpf_set_nan(res);
+    return 0;
+  }
+  if (x->kind == S21_MPF_ZERO) {
+    s21_mpf_set_zero(res, x->sign);
+    return 0;
+  }
+
+  /* Оба NORMAL.  Если |x| < |y|, fmod = x. */
+  if (s21_mpf_cmp_abs(x, y) < 0) {
+    s21_mpf_set(res, x);
+    return 0;
+  }
+
+  /* Guard-точность на cancelation в x - trunc(x/y)*y.
+     При x/y ≈ 2^E теряем E бит; добавляем E к рабочей точности. */
+  int64_t E = (int64_t)x->exp - (int64_t)y->exp;
+  if (E < 0) E = 0;
+  if (E > S21_MPF_MAX_ARG_BITS) {
+    s21_mpf_set_nan(res);
+    return 0;
+  }
+  uint32_t wp = res->prec + 64 + (uint32_t)E;
+
+  s21_mpf_stack_t xw_s, yw_s, q_s, n_s, prod_s, r_s;
+  s21_mpf_stack_init(&xw_s,   wp);
+  s21_mpf_stack_init(&yw_s,   wp);
+  s21_mpf_stack_init(&q_s,    wp);
+  s21_mpf_stack_init(&n_s,    wp);
+  s21_mpf_stack_init(&prod_s, wp);
+  s21_mpf_stack_init(&r_s,    wp);
+
+  s21_mpf_set(&xw_s.mpf, x);
+  s21_mpf_set(&yw_s.mpf, y);
+
+  s21_mpf_div_raw(&q_s.mpf, &xw_s.mpf, &yw_s.mpf);
+  s21_mpf_trunc(&n_s.mpf, &q_s.mpf);
+  s21_mpf_mul_raw(&prod_s.mpf, &n_s.mpf, &yw_s.mpf);
+  s21_mpf_sub_raw(&r_s.mpf, &xw_s.mpf, &prod_s.mpf);
+
+  /* C99: знак fmod = знак x, включая случай r = 0. */
+  if (s21_mpf_is_zero(&r_s.mpf)) r_s.mpf.sign = x->sign;
+
+  s21_mpf_set(res, &r_s.mpf);
+
+  s21_mpf_stack_clear(&xw_s);
+  s21_mpf_stack_clear(&yw_s);
+  s21_mpf_stack_clear(&q_s);
+  s21_mpf_stack_clear(&n_s);
+  s21_mpf_stack_clear(&prod_s);
+  s21_mpf_stack_clear(&r_s);
+  return 0;
+}
+
+/* Внутренний аналог trunc для reduce_2pi: возвращает void,
+   чтобы не переписывать вызов в round_nearest. */
 static void s21_mpf_round_nearest(s21_mpf_t *res, const s21_mpf_t *x) {
   if (x->kind == S21_MPF_ZERO) {
     s21_mpf_set_zero(res, x->sign);

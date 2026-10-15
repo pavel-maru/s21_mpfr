@@ -3694,6 +3694,269 @@ static void test_base_conversion(void) {
   printf("[ok] base conversion (2/8/16/36)\n");
 }
 
+static void test_rounding_utils(void) {
+  s21_mpf_t x, r, e;
+  s21_mpf_init2(&x, 256);
+  s21_mpf_init2(&r, 256);
+  s21_mpf_init2(&e, 256);
+
+  /* trunc */
+  s21_mpf_set_d(&x, 3.7);
+  s21_mpf_trunc(&r, &x);
+  s21_mpf_set_ui(&e, 3);
+  ASSERT(s21_mpf_cmp(&r, &e) == 0, "trunc(3.7) = 3");
+
+  s21_mpf_set_d(&x, -3.7);
+  s21_mpf_trunc(&r, &x);
+  s21_mpf_set_si(&e, -3);
+  ASSERT(s21_mpf_cmp(&r, &e) == 0, "trunc(-3.7) = -3");
+
+  s21_mpf_set_d(&x, 0.5);
+  s21_mpf_trunc(&r, &x);
+  ASSERT(s21_mpf_is_zero(&r) && r.sign == 0, "trunc(0.5) = +0");
+
+  s21_mpf_set_d(&x, -0.5);
+  s21_mpf_trunc(&r, &x);
+  ASSERT(s21_mpf_is_zero(&r) && r.sign == 1, "trunc(-0.5) = -0");
+
+  s21_mpf_set_d(&x, 42.0);
+  s21_mpf_trunc(&r, &x);
+  s21_mpf_set_ui(&e, 42);
+  ASSERT(s21_mpf_cmp(&r, &e) == 0, "trunc(42.0) = 42");
+
+  s21_mpf_set_inf(&x, 0);
+  s21_mpf_trunc(&r, &x);
+  ASSERT(s21_mpf_is_inf(&r) && r.sign == 0, "trunc(+inf) = +inf");
+
+  s21_mpf_set_nan(&x);
+  s21_mpf_trunc(&r, &x);
+  ASSERT(s21_mpf_is_nan(&r), "trunc(NaN) = NaN");
+
+  /* floor */
+  s21_mpf_set_d(&x, 3.7);
+  s21_mpf_floor(&r, &x);
+  s21_mpf_set_ui(&e, 3);
+  ASSERT(s21_mpf_cmp(&r, &e) == 0, "floor(3.7) = 3");
+
+  s21_mpf_set_d(&x, -3.7);
+  s21_mpf_floor(&r, &x);
+  s21_mpf_set_si(&e, -4);
+  ASSERT(s21_mpf_cmp(&r, &e) == 0, "floor(-3.7) = -4");
+
+  s21_mpf_set_d(&x, 3.0);
+  s21_mpf_floor(&r, &x);
+  s21_mpf_set_ui(&e, 3);
+  ASSERT(s21_mpf_cmp(&r, &e) == 0, "floor(3.0) = 3");
+
+  s21_mpf_set_d(&x, -3.0);
+  s21_mpf_floor(&r, &x);
+  s21_mpf_set_si(&e, -3);
+  ASSERT(s21_mpf_cmp(&r, &e) == 0, "floor(-3.0) = -3");
+
+  s21_mpf_set_d(&x, -0.5);
+  s21_mpf_floor(&r, &x);
+  s21_mpf_set_si(&e, -1);
+  ASSERT(s21_mpf_cmp(&r, &e) == 0, "floor(-0.5) = -1");
+
+  /* ceil */
+  s21_mpf_set_d(&x, 3.2);
+  s21_mpf_ceil(&r, &x);
+  s21_mpf_set_ui(&e, 4);
+  ASSERT(s21_mpf_cmp(&r, &e) == 0, "ceil(3.2) = 4");
+
+  s21_mpf_set_d(&x, -3.2);
+  s21_mpf_ceil(&r, &x);
+  s21_mpf_set_si(&e, -3);
+  ASSERT(s21_mpf_cmp(&r, &e) == 0, "ceil(-3.2) = -3");
+
+  s21_mpf_set_d(&x, 3.0);
+  s21_mpf_ceil(&r, &x);
+  s21_mpf_set_ui(&e, 3);
+  ASSERT(s21_mpf_cmp(&r, &e) == 0, "ceil(3.0) = 3");
+
+  s21_mpf_set_d(&x, 0.5);
+  s21_mpf_ceil(&r, &x);
+  s21_mpf_set_ui(&e, 1);
+  ASSERT(s21_mpf_cmp(&r, &e) == 0, "ceil(0.5) = 1");
+
+  /* round — C99, ties away from zero */
+  s21_mpf_set_d(&x, 2.4);
+  s21_mpf_round(&r, &x);
+  s21_mpf_set_ui(&e, 2);
+  ASSERT(s21_mpf_cmp(&r, &e) == 0, "round(2.4) = 2");
+
+  s21_mpf_set_d(&x, 2.5);
+  s21_mpf_round(&r, &x);
+  s21_mpf_set_ui(&e, 3);
+  ASSERT(s21_mpf_cmp(&r, &e) == 0, "round(2.5) = 3 (away from zero)");
+
+  s21_mpf_set_d(&x, 2.6);
+  s21_mpf_round(&r, &x);
+  s21_mpf_set_ui(&e, 3);
+  ASSERT(s21_mpf_cmp(&r, &e) == 0, "round(2.6) = 3");
+
+  s21_mpf_set_d(&x, -2.4);
+  s21_mpf_round(&r, &x);
+  s21_mpf_set_si(&e, -2);
+  ASSERT(s21_mpf_cmp(&r, &e) == 0, "round(-2.4) = -2");
+
+  s21_mpf_set_d(&x, -2.5);
+  s21_mpf_round(&r, &x);
+  s21_mpf_set_si(&e, -3);
+  ASSERT(s21_mpf_cmp(&r, &e) == 0, "round(-2.5) = -3 (away from zero)");
+
+  s21_mpf_set_d(&x, 0.4);
+  s21_mpf_round(&r, &x);
+  ASSERT(s21_mpf_is_zero(&r) && r.sign == 0, "round(0.4) = +0");
+
+  s21_mpf_set_d(&x, -0.4);
+  s21_mpf_round(&r, &x);
+  ASSERT(s21_mpf_is_zero(&r) && r.sign == 1, "round(-0.4) = -0");
+
+  /* Спецзначения */
+  s21_mpf_set_inf(&x, 1);
+  s21_mpf_floor(&r, &x);
+  ASSERT(s21_mpf_is_inf(&r) && r.sign == 1, "floor(-inf) = -inf");
+
+  s21_mpf_set_inf(&x, 0);
+  s21_mpf_ceil(&r, &x);
+  ASSERT(s21_mpf_is_inf(&r) && r.sign == 0, "ceil(+inf) = +inf");
+
+  s21_mpf_set_nan(&x);
+  s21_mpf_round(&r, &x);
+  ASSERT(s21_mpf_is_nan(&r), "round(NaN) = NaN");
+
+  /* NULL */
+  ASSERT(s21_mpf_trunc(NULL, &x) == -1, "trunc: NULL res");
+  ASSERT(s21_mpf_trunc(&r, NULL) == -1, "trunc: NULL x");
+  ASSERT(s21_mpf_floor(NULL, &x) == -1, "floor: NULL res");
+  ASSERT(s21_mpf_ceil(NULL, &x) == -1, "ceil: NULL res");
+  ASSERT(s21_mpf_round(NULL, &x) == -1, "round: NULL res");
+
+  s21_mpf_clear(&x);
+  s21_mpf_clear(&r);
+  s21_mpf_clear(&e);
+  printf("[ok] trunc / floor / ceil / round\n");
+}
+
+static void test_fmod(void) {
+  s21_mpf_t x, y, r, e, diff, thr;
+  s21_mpf_init2(&x, 256);
+  s21_mpf_init2(&y, 256);
+  s21_mpf_init2(&r, 256);
+  s21_mpf_init2(&e, 256);
+  s21_mpf_init2(&diff, 256);
+  s21_mpf_init2(&thr, 256);
+  s21_mpf_set_d(&thr, 1e-70);
+
+  /* Целые */
+  s21_mpf_set_ui(&x, 10);
+  s21_mpf_set_ui(&y, 3);
+  s21_mpf_fmod(&r, &x, &y);
+  s21_mpf_set_ui(&e, 1);
+  ASSERT(s21_mpf_cmp(&r, &e) == 0, "fmod(10, 3) = 1");
+
+  s21_mpf_set_si(&x, -10);
+  s21_mpf_fmod(&r, &x, &y);
+  s21_mpf_set_si(&e, -1);
+  ASSERT(s21_mpf_cmp(&r, &e) == 0, "fmod(-10, 3) = -1");
+
+  s21_mpf_set_ui(&x, 10);
+  s21_mpf_set_si(&y, -3);
+  s21_mpf_fmod(&r, &x, &y);
+  s21_mpf_set_ui(&e, 1);
+  ASSERT(s21_mpf_cmp(&r, &e) == 0, "fmod(10, -3) = 1");
+
+  s21_mpf_set_ui(&x, 9);
+  s21_mpf_set_ui(&y, 3);
+  s21_mpf_fmod(&r, &x, &y);
+  ASSERT(s21_mpf_is_zero(&r) && r.sign == 0, "fmod(9, 3) = +0");
+
+  s21_mpf_set_si(&x, -9);
+  s21_mpf_set_ui(&y, 3);
+  s21_mpf_fmod(&r, &x, &y);
+  ASSERT(s21_mpf_is_zero(&r) && r.sign == 1, "fmod(-9, 3) = -0 (знак x)");
+
+  /* Дробные */
+  s21_mpf_set_d(&x, 10.5);
+  s21_mpf_set_ui(&y, 3);
+  s21_mpf_fmod(&r, &x, &y);
+  s21_mpf_set_d(&e, 1.5);
+  s21_mpf_sub(&diff, &r, &e);
+  s21_mpf_abs(&diff, &diff);
+  ASSERT(s21_mpf_cmp(&diff, &thr) < 0, "fmod(10.5, 3) = 1.5");
+
+  s21_mpf_set_d(&x, 9.9);
+  s21_mpf_set_ui(&y, 3);
+  s21_mpf_fmod(&r, &x, &y);
+  s21_mpf_set_d(&e, 0.9);
+  s21_mpf_sub(&diff, &r, &e);
+  s21_mpf_abs(&diff, &diff);
+  s21_mpf_set_d(&thr, 1e-14);
+  ASSERT(s21_mpf_cmp(&diff, &thr) < 0, "fmod(9.9, 3) ≈ 0.9");
+  s21_mpf_set_d(&thr, 1e-70);
+
+  /* |x| < |y| */
+  s21_mpf_set_ui(&x, 2);
+  s21_mpf_set_ui(&y, 5);
+  s21_mpf_fmod(&r, &x, &y);
+  s21_mpf_set_ui(&e, 2);
+  ASSERT(s21_mpf_cmp(&r, &e) == 0, "fmod(2, 5) = 2");
+
+  /* x = 0 */
+  s21_mpf_set_zero(&x, 1);
+  s21_mpf_set_ui(&y, 3);
+  s21_mpf_fmod(&r, &x, &y);
+  ASSERT(s21_mpf_is_zero(&r) && r.sign == 1, "fmod(-0, 3) = -0");
+
+  /* Большое x / маленькое y */
+  s21_mpf_set_ui(&x, 1000000);
+  s21_mpf_set_ui(&y, 7);
+  s21_mpf_fmod(&r, &x, &y);
+  s21_mpf_set_ui(&e, 1);
+  ASSERT(s21_mpf_cmp(&r, &e) == 0, "fmod(1000000, 7) = 1");
+
+  /* Спецзначения */
+  s21_mpf_set_ui(&x, 10);
+  s21_mpf_set_ui(&y, 0);
+  s21_mpf_fmod(&r, &x, &y);
+  ASSERT(s21_mpf_is_nan(&r), "fmod(10, 0) = NaN");
+
+  s21_mpf_set_inf(&x, 0);
+  s21_mpf_set_ui(&y, 3);
+  s21_mpf_fmod(&r, &x, &y);
+  ASSERT(s21_mpf_is_nan(&r), "fmod(+inf, 3) = NaN");
+
+  s21_mpf_set_ui(&x, 10);
+  s21_mpf_set_inf(&y, 0);
+  s21_mpf_fmod(&r, &x, &y);
+  s21_mpf_set_ui(&e, 10);
+  ASSERT(s21_mpf_cmp(&r, &e) == 0, "fmod(10, +inf) = 10");
+
+  s21_mpf_set_nan(&x);
+  s21_mpf_set_ui(&y, 3);
+  s21_mpf_fmod(&r, &x, &y);
+  ASSERT(s21_mpf_is_nan(&r), "fmod(NaN, 3) = NaN");
+
+  s21_mpf_set_ui(&x, 10);
+  s21_mpf_set_nan(&y);
+  s21_mpf_fmod(&r, &x, &y);
+  ASSERT(s21_mpf_is_nan(&r), "fmod(10, NaN) = NaN");
+
+  /* NULL */
+  ASSERT(s21_mpf_fmod(NULL, &x, &y) == -1, "fmod: NULL res");
+  ASSERT(s21_mpf_fmod(&r, NULL, &y) == -1, "fmod: NULL x");
+  ASSERT(s21_mpf_fmod(&r, &x, NULL) == -1, "fmod: NULL y");
+
+  s21_mpf_clear(&x);
+  s21_mpf_clear(&y);
+  s21_mpf_clear(&r);
+  s21_mpf_clear(&e);
+  s21_mpf_clear(&diff);
+  s21_mpf_clear(&thr);
+  printf("[ok] fmod\n");
+}
+
 static void test_ulp_diagnostics(void) {
   struct {
     const char *name;
@@ -3789,6 +4052,8 @@ int main(void) {
       {"set_str",                          test_set_str},
       {"get_str",                          test_get_str},
       {"base conversion (2/8/16/36)",      test_base_conversion},
+      {"trunc / floor / ceil / round",      test_rounding_utils},
+      {"fmod",                              test_fmod},
       {"ulp diagnostics",                  test_ulp_diagnostics},
   };
   const size_t n = sizeof(tests) / sizeof(tests[0]);

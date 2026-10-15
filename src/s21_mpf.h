@@ -97,6 +97,34 @@ int s21_mpf_equal(const s21_mpf_t *x, const s21_mpf_t *y);
 int s21_mpf_zero_p(const s21_mpf_t *x);
 int s21_mpf_integer_p(const s21_mpf_t *x);
 
+/* ============== Округление к целому ============== */
+
+/* Усечение к нулю: отбрасывает дробную часть.
+   trunc(±0) = ±0, trunc(±inf) = ±inf, trunc(NaN) = NaN. */
+int s21_mpf_trunc(s21_mpf_t *res, const s21_mpf_t *x);
+
+/* Округление к -inf.  floor(±0) = ±0, floor(±inf) = ±inf. */
+int s21_mpf_floor(s21_mpf_t *res, const s21_mpf_t *x);
+
+/* Округление к +inf.  ceil(±0) = ±0, ceil(±inf) = ±inf. */
+int s21_mpf_ceil(s21_mpf_t *res, const s21_mpf_t *x);
+
+/* Округление к ближайшему целому, ties away from zero (C99 round).
+   round(±0) = ±0, round(±inf) = ±inf, round(NaN) = NaN. */
+int s21_mpf_round(s21_mpf_t *res, const s21_mpf_t *x);
+
+/* ============== Остаток ============== */
+
+/* fmod(x, y) = x - trunc(x/y) * y.  Знак результата = знак x.
+   Спецзначения по C99:
+     fmod(x, ±inf) = x       (для конечного x)
+     fmod(±inf, y) = NaN
+     fmod(x, 0)    = NaN
+     fmod(±0, y)   = ±0      (знак x)
+   При |x| >> |y| добавляется guard-точность ~ log2(|x/y|);
+   выше S21_MPF_MAX_ARG_BITS — NaN. */
+int s21_mpf_fmod(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y);
+
 /* ============== Арифметика ============== */
 
 int s21_mpf_add(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y);
