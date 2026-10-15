@@ -532,8 +532,243 @@ int s21_mpf_log10(s21_mpf_t *res, const s21_mpf_t *x) {
 }
 
 /* ============================================================
-   Утилиты тригонометрии
+   log(1 + x) и exp(x) - 1 с повышенной точностью у нуля.
+
+   Обе функции страдают от cancelation: при малых |x|
+   1 + x или exp(x) - 1 теряют ~log2(1/|x|) бит.  Добавляем
+   guard-биты, пропорциональные -x->exp.
+
+   Для |x| < 2^(-prec/2) ряд Тейлора отклоняется от x меньше
+   чем на prec бит — возвращаем x напрямую.
    ============================================================ */
+
+int s21_mpf_log1p(s21_mpf_t *res, const s21_mpf_t *x) {
+  if (res == NULL || x == NULL) return -1;
+  if (x->kind == S21_MPF_NAN) {
+    s21_mpf_set_nan(res);
+    return 0;
+  }
+  if (x->kind == S21_MPF_ZERO) {
+    s21_mpf_set_zero(res, x->sign);
+    return 0;
+  }
+  if (x->kind == S21_MPF_INF) {
+    if (x->sign) s21_mpf_set_nan(res);
+    else         s21_mpf_set_inf(res, 0);
+    return 0;
+  }
+
+  /* Домен: x > -1.  Проверка через cmp_abs против 1. */
+  if (x->sign) {
+    s21_mpf_t one;
+    s21_mpf_init2(&one, x->prec);
+    s21_mpf_set_ui(&one, 1);
+    int cmp = s21_mpf_cmp_abs(x, &one);
+    s21_mpf_clear(&one);
+    if (cmp > 0) {
+      s21_mpf_set_nan(res);
+      return 0;
+    }
+    if (cmp == 0) {
+      s21_mpf_set_inf(res, 1);
+      return 0;
+    }
+  }
+
+  /* |x| < 2^(-prec/2): log1p(x) = x с точностью выше prec. */
+  if (x->exp < -(int64_t)res->prec / 2) {
+    s21_mpf_set(res, x);
+    return 0;
+  }
+
+  int64_t guard = (x->exp < 0) ? -x->exp : 0;
+  if (guard > S21_MPF_MAX_ARG_BITS) {
+    s21_mpf_set(res, x);
+    return 0;
+  }
+  uint32_t wp = res->prec + 64 + (uint32_t)guard;
+
+  s21_mpf_stack_t t_s, one_s;
+  s21_mpf_stack_init(&t_s, wp);
+  s21_mpf_stack_init(&one_s, wp);
+
+  s21_mpf_set(&t_s.mpf, x);
+  s21_mpf_set_ui(&one_s.mpf, 1);
+  s21_mpf_add_raw(&t_s.mpf, &t_s.mpf, &one_s.mpf); /* 1 + x */
+  s21_mpf_log(res, &t_s.mpf);
+
+  s21_mpf_stack_clear(&t_s);
+  s21_mpf_stack_clear(&one_s);
+  return 0;
+}
+
+int s21_mpf_expm1(s21_mpf_t *res, const s21_mpf_t *x) {
+  if (res == NULL || x == NULL) return -1;
+  if (x->kind == S21_MPF_NAN) {
+    s21_mpf_set_nan(res);
+    return 0;
+  }
+  if (x->kind == S21_MPF_ZERO) {
+    s21_mpf_set_zero(res, x->sign);
+    return 0;
+  }
+  if (x->kind == S21_MPF_INF) {
+    if (x->sign) s21_mpf_set_si(res, -1);
+    else         s21_mpf_set_inf(res, 0);
+    return 0;
+  }
+
+  /* |x| < 2^(-prec/2): expm1(x) = x. */
+  if (x->exp < -(int64_t)res->prec / 2) {
+    s21_mpf_set(res, x);
+    return 0;
+  }
+
+  int64_t guard = (x->exp < 0) ? -x->exp : 0;
+  if (guard > S21_MPF_MAX_ARG_BITS) {
+    s21_mpf_set(res, x);
+    return 0;
+  }
+  uint32_t wp = res->prec + 64 + (uint32_t)guard;
+
+  s21_mpf_stack_t t_s, one_s;
+  s21_mpf_stack_init(&t_s, wp);
+  s21_mpf_stack_init(&one_s, wp);
+
+  s21_mpf_set(&t_s.mpf, x);
+  s21_mpf_exp(&t_s.mpf, &t_s.mpf);
+  s21_mpf_set_ui(&one_s.mpf, 1);
+  s21_mpf_sub_raw(&t_s.mpf, &t_s.mpf, &one_s.mpf);
+  s21_mpf_set(res, &t_s.mpf);
+
+  s21_mpf_stack_clear(&t_s);
+  s21_mpf_stack_clear(&one_s);
+  return 0;
+}
+
+/* ============================================================
+   Кубический корень через метод Ньютона.
+
+   Итерация:  y_{n+1} = (2·y_n + x / y_n²) / 3.
+
+   Сходимость квадратичная при y_0, близком к ∛x.  Seed из
+   double cbrt(x), если применим; иначе fallback 2^(a.exp/3).
+
+   Работает для обоих знаков: ∛x для x < 0 — отрицательное
+   число, Newton сохраняет знак в силу 2·y + x/y² (при y < 0
+   и x < 0 оба слагаемых отрицательны).
+   ============================================================ */
+
+/* Начальное приближение ∛a из double.
+   a — NORMAL, a != 0.  Возвращает 0 при успехе, -1 если
+   double-приближение неприменимо (a.exp слишком экстремален). */
+static int cbrt_seed_from_double(s21_mpf_t *seed, const s21_mpf_t *a) {
+  size_t count = s21_mpf_limbs_for_prec(a->prec);
+  int last = (int)count - 1;
+  while (last > 0 && a->limbs[last] == 0) last--;
+  if (a->limbs[last] == 0) return -1;
+
+  int msb_local = 63 - __builtin_clzll(a->limbs[last]);
+  int shift = 63 - msb_local;
+  uint64_t top64 = a->limbs[last] << shift;
+
+  /* m_norm = top64 / 2^63 ∈ [1, 2), знак отдельно. */
+  double m_norm = (double)top64 / 9223372036854775808.0;
+
+  /* a = ± m_norm · 2^(exp-1).  ∛a = ∛m_norm · 2^((exp-1)/3).
+     E = exp - 1,  E = 3·k + r,  r ∈ {0, 1, 2}. */
+  int64_t E = a->exp - 1;
+  int64_t k = E / 3;
+  int64_t r = E - 3 * k;
+  /* При E < 0 C-деление округляет к нулю; нормализуем остаток. */
+  if (r < 0) {
+    r += 3;
+    k -= 1;
+  }
+
+  double scaled = m_norm;
+  if (r == 1) scaled *= 2.0;
+  else if (r == 2) scaled *= 4.0;
+
+  double root = cbrt(scaled);
+  if (root <= 0.0) return -1;
+  if (a->sign) root = -root;
+
+  if (k > INT32_MAX || k < INT32_MIN) return -1;
+  double result = ldexp(root, (int)k);
+
+  if (!isfinite(result) || result == 0.0) return -1;
+
+  s21_mpf_set_d(seed, result);
+  return 0;
+}
+
+int s21_mpf_cbrt(s21_mpf_t *res, const s21_mpf_t *x) {
+  if (res == NULL || x == NULL) return -1;
+  if (x->kind == S21_MPF_NAN) {
+    s21_mpf_set_nan(res);
+    return 0;
+  }
+  if (x->kind == S21_MPF_ZERO) {
+    s21_mpf_set_zero(res, x->sign);
+    return 0;
+  }
+  if (x->kind == S21_MPF_INF) {
+    s21_mpf_set_inf(res, x->sign);
+    return 0;
+  }
+
+  uint32_t wp = res->prec + 64;
+
+  s21_mpf_stack_t a_s, y_s, y2_s, tmp_s, three_s, two_s, next_s;
+  s21_mpf_stack_init(&a_s,     wp);
+  s21_mpf_stack_init(&y_s,     wp);
+  s21_mpf_stack_init(&y2_s,    wp);
+  s21_mpf_stack_init(&tmp_s,   wp);
+  s21_mpf_stack_init(&three_s, wp);
+  s21_mpf_stack_init(&two_s,   wp);
+  s21_mpf_stack_init(&next_s,  wp);
+
+  s21_mpf_set(&a_s.mpf, x);
+
+  if (cbrt_seed_from_double(&y_s.mpf, &a_s.mpf) != 0) {
+    /* Fallback: 2^(exp/3 + 1), знак из a. */
+    int64_t k = a_s.mpf.exp / 3;
+    s21_mpf_set_ui(&y_s.mpf, 1);
+    y_s.mpf.exp = k + 1;
+    y_s.mpf.sign = a_s.mpf.sign;
+    s21_mpf_normalize(&y_s.mpf);
+  }
+
+  s21_mpf_set_ui(&two_s.mpf, 2);
+  s21_mpf_set_ui(&three_s.mpf, 3);
+
+  for (int i = 0; i < 200; i++) {
+    /* y2 = y² */
+    s21_mpf_mul_raw(&y2_s.mpf, &y_s.mpf, &y_s.mpf);
+    /* tmp = a / y² */
+    s21_mpf_div_raw(&tmp_s.mpf, &a_s.mpf, &y2_s.mpf);
+    /* next = 2y + tmp */
+    s21_mpf_mul_raw(&next_s.mpf, &y_s.mpf, &two_s.mpf);
+    s21_mpf_add_raw(&next_s.mpf, &next_s.mpf, &tmp_s.mpf);
+    /* next = next / 3 */
+    s21_mpf_div_raw(&next_s.mpf, &next_s.mpf, &three_s.mpf);
+
+    if (s21_mpf_cmp(&next_s.mpf, &y_s.mpf) == 0) break;
+    s21_mpf_set(&y_s.mpf, &next_s.mpf);
+  }
+
+  s21_mpf_set(res, &y_s.mpf);
+
+  s21_mpf_stack_clear(&a_s);
+  s21_mpf_stack_clear(&y_s);
+  s21_mpf_stack_clear(&y2_s);
+  s21_mpf_stack_clear(&tmp_s);
+  s21_mpf_stack_clear(&three_s);
+  s21_mpf_stack_clear(&two_s);
+  s21_mpf_stack_clear(&next_s);
+  return 0;
+}
 
 /* ============================================================
    Округление и остаток.

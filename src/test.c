@@ -3957,6 +3957,242 @@ static void test_fmod(void) {
   printf("[ok] fmod\n");
 }
 
+static void test_log1p_expm1(void) {
+  s21_mpf_t x, r, e, diff, thr;
+  s21_mpf_init2(&x, 256);
+  s21_mpf_init2(&r, 256);
+  s21_mpf_init2(&e, 256);
+  s21_mpf_init2(&diff, 256);
+  s21_mpf_init2(&thr, 256);
+  s21_mpf_set_d(&thr, 1e-15);
+
+  /* log1p: значения вне нуля — против log(1+x) */
+  s21_mpf_set_ui(&x, 0);
+  s21_mpf_log1p(&r, &x);
+  ASSERT(s21_mpf_is_zero(&r), "log1p(0) = 0");
+
+  s21_mpf_set_ui(&x, 1);
+  s21_mpf_log1p(&r, &x);
+  s21_mpf_set_d(&e, 0.6931471805599453);
+  s21_mpf_sub(&diff, &r, &e);
+  s21_mpf_abs(&diff, &diff);
+  ASSERT(s21_mpf_cmp(&diff, &thr) < 0, "log1p(1) ≈ ln 2");
+
+  s21_mpf_set_ui(&x, 9);
+  s21_mpf_log1p(&r, &x);
+  s21_mpf_set_d(&e, 2.302585092994046);
+  s21_mpf_sub(&diff, &r, &e);
+  s21_mpf_abs(&diff, &diff);
+  ASSERT(s21_mpf_cmp(&diff, &thr) < 0, "log1p(9) ≈ ln 10");
+
+  /* Малые значения: log1p(x) ≈ x - x²/2, а не 0 как при log(1+x). */
+  s21_mpf_set_ui(&x, 1);
+  x.exp -= 30; /* x = 2^-30 */
+  s21_mpf_normalize(&x);
+  s21_mpf_log1p(&r, &x);
+  s21_mpf_sub(&diff, &r, &x);
+  s21_mpf_abs(&diff, &diff);
+  /* Разница ~ x²/2 = 2^-61.  Порог 1e-15 с запасом. */
+  s21_mpf_set_d(&thr, 1e-15);
+  ASSERT(s21_mpf_cmp(&diff, &thr) < 0, "log1p(2^-30) ≈ 2^-30");
+
+  /* Домен */
+  s21_mpf_set_si(&x, -1);
+  s21_mpf_log1p(&r, &x);
+  ASSERT(s21_mpf_is_inf(&r) && r.sign == 1, "log1p(-1) = -inf");
+
+  s21_mpf_set_si(&x, -2);
+  s21_mpf_log1p(&r, &x);
+  ASSERT(s21_mpf_is_nan(&r), "log1p(-2) = NaN");
+
+  s21_mpf_set_inf(&x, 0);
+  s21_mpf_log1p(&r, &x);
+  ASSERT(s21_mpf_is_inf(&r) && r.sign == 0, "log1p(+inf) = +inf");
+
+  s21_mpf_set_inf(&x, 1);
+  s21_mpf_log1p(&r, &x);
+  ASSERT(s21_mpf_is_nan(&r), "log1p(-inf) = NaN");
+
+  s21_mpf_set_nan(&x);
+  s21_mpf_log1p(&r, &x);
+  ASSERT(s21_mpf_is_nan(&r), "log1p(NaN) = NaN");
+
+  /* expm1 */
+  s21_mpf_set_ui(&x, 0);
+  s21_mpf_expm1(&r, &x);
+  ASSERT(s21_mpf_is_zero(&r), "expm1(0) = 0");
+
+  s21_mpf_set_ui(&x, 1);
+  s21_mpf_expm1(&r, &x);
+  s21_mpf_set_d(&e, 1.718281828459045);
+  s21_mpf_sub(&diff, &r, &e);
+  s21_mpf_abs(&diff, &diff);
+  s21_mpf_set_d(&thr, 1e-15);
+  ASSERT(s21_mpf_cmp(&diff, &thr) < 0, "expm1(1) ≈ e - 1");
+
+  s21_mpf_set_si(&x, -1);
+  s21_mpf_expm1(&r, &x);
+  s21_mpf_set_d(&e, -0.6321205588285577);
+  s21_mpf_sub(&diff, &r, &e);
+  s21_mpf_abs(&diff, &diff);
+  ASSERT(s21_mpf_cmp(&diff, &thr) < 0, "expm1(-1) ≈ 1/e - 1");
+
+  /* Малые: expm1(x) ≈ x.  При prec = 256 разница x²/2 = 2^-61. */
+  s21_mpf_set_ui(&x, 1);
+  x.exp -= 30;
+  s21_mpf_normalize(&x);
+  s21_mpf_expm1(&r, &x);
+  s21_mpf_sub(&diff, &r, &x);
+  s21_mpf_abs(&diff, &diff);
+  ASSERT(s21_mpf_cmp(&diff, &thr) < 0, "expm1(2^-30) ≈ 2^-30");
+
+  /* Спецзначения */
+  s21_mpf_set_inf(&x, 0);
+  s21_mpf_expm1(&r, &x);
+  ASSERT(s21_mpf_is_inf(&r) && r.sign == 0, "expm1(+inf) = +inf");
+
+  s21_mpf_set_inf(&x, 1);
+  s21_mpf_expm1(&r, &x);
+  s21_mpf_set_si(&e, -1);
+  ASSERT(s21_mpf_cmp(&r, &e) == 0, "expm1(-inf) = -1");
+
+  s21_mpf_set_nan(&x);
+  s21_mpf_expm1(&r, &x);
+  ASSERT(s21_mpf_is_nan(&r), "expm1(NaN) = NaN");
+
+  /* Тождество: log1p(expm1(x)) = x для x = 1.5. */
+  s21_mpf_set_d(&x, 1.5);
+  s21_mpf_expm1(&r, &x);
+  s21_mpf_log1p(&r, &r);
+  s21_mpf_sub(&diff, &r, &x);
+  s21_mpf_abs(&diff, &diff);
+  s21_mpf_set_d(&thr, 1e-70);
+  ASSERT(s21_mpf_cmp(&diff, &thr) < 0, "log1p(expm1(1.5)) = 1.5");
+
+  /* NULL */
+  ASSERT(s21_mpf_log1p(NULL, &x) == -1, "log1p: NULL res");
+  ASSERT(s21_mpf_log1p(&r, NULL) == -1, "log1p: NULL x");
+  ASSERT(s21_mpf_expm1(NULL, &x) == -1, "expm1: NULL res");
+  ASSERT(s21_mpf_expm1(&r, NULL) == -1, "expm1: NULL x");
+
+  s21_mpf_clear(&x);
+  s21_mpf_clear(&r);
+  s21_mpf_clear(&e);
+  s21_mpf_clear(&diff);
+  s21_mpf_clear(&thr);
+  printf("[ok] log1p / expm1\n");
+}
+
+static void test_cbrt(void) {
+  s21_mpf_t x, r, e, diff, thr;
+  s21_mpf_init2(&x, 256);
+  s21_mpf_init2(&r, 256);
+  s21_mpf_init2(&e, 256);
+  s21_mpf_init2(&diff, 256);
+  s21_mpf_init2(&thr, 256);
+  s21_mpf_set_d(&thr, 1e-70);
+
+  /* Точные кубы */
+  s21_mpf_set_ui(&x, 8);
+  s21_mpf_cbrt(&r, &x);
+  s21_mpf_set_ui(&e, 2);
+  s21_mpf_sub(&diff, &r, &e);
+  s21_mpf_abs(&diff, &diff);
+  ASSERT(s21_mpf_cmp(&diff, &thr) < 0, "cbrt(8) = 2");
+
+  s21_mpf_set_ui(&x, 27);
+  s21_mpf_cbrt(&r, &x);
+  s21_mpf_set_ui(&e, 3);
+  s21_mpf_sub(&diff, &r, &e);
+  s21_mpf_abs(&diff, &diff);
+  ASSERT(s21_mpf_cmp(&diff, &thr) < 0, "cbrt(27) = 3");
+
+  s21_mpf_set_ui(&x, 1000);
+  s21_mpf_cbrt(&r, &x);
+  s21_mpf_set_ui(&e, 10);
+  s21_mpf_sub(&diff, &r, &e);
+  s21_mpf_abs(&diff, &diff);
+  ASSERT(s21_mpf_cmp(&diff, &thr) < 0, "cbrt(1000) = 10");
+
+  /* Отрицательные: ∛(-8) = -2 */
+  s21_mpf_set_si(&x, -8);
+  s21_mpf_cbrt(&r, &x);
+  s21_mpf_set_si(&e, -2);
+  s21_mpf_sub(&diff, &r, &e);
+  s21_mpf_abs(&diff, &diff);
+  ASSERT(s21_mpf_cmp(&diff, &thr) < 0, "cbrt(-8) = -2");
+
+  s21_mpf_set_si(&x, -27);
+  s21_mpf_cbrt(&r, &x);
+  s21_mpf_set_si(&e, -3);
+  s21_mpf_sub(&diff, &r, &e);
+  s21_mpf_abs(&diff, &diff);
+  ASSERT(s21_mpf_cmp(&diff, &thr) < 0, "cbrt(-27) = -3");
+
+  /* Нецелые — округлённое сравнение через libm */
+  s21_mpf_set_ui(&x, 2);
+  s21_mpf_cbrt(&r, &x);
+  s21_mpf_set_d(&e, 1.2599210498948732);
+  s21_mpf_sub(&diff, &r, &e);
+  s21_mpf_abs(&diff, &diff);
+  s21_mpf_set_d(&thr, 1e-15);
+  ASSERT(s21_mpf_cmp(&diff, &thr) < 0, "cbrt(2) ≈ 1.2599");
+
+  s21_mpf_set_ui(&x, 10);
+  s21_mpf_cbrt(&r, &x);
+  s21_mpf_set_d(&e, 2.1544346900318837);
+  s21_mpf_sub(&diff, &r, &e);
+  s21_mpf_abs(&diff, &diff);
+  ASSERT(s21_mpf_cmp(&diff, &thr) < 0, "cbrt(10) ≈ 2.1544");
+
+  /* (cbrt(x))³ = x */
+  s21_mpf_set_ui(&x, 7);
+  s21_mpf_cbrt(&r, &x);
+  {
+    s21_mpf_t cube;
+    s21_mpf_init2(&cube, 256);
+    s21_mpf_mul(&cube, &r, &r);
+    s21_mpf_mul(&cube, &cube, &r);
+    s21_mpf_sub(&diff, &cube, &x);
+    s21_mpf_abs(&diff, &diff);
+    s21_mpf_set_d(&thr, 1e-70);
+    ASSERT(s21_mpf_cmp(&diff, &thr) < 0, "(cbrt(7))³ = 7");
+    s21_mpf_clear(&cube);
+  }
+
+  /* Спецзначения */
+  s21_mpf_set_zero(&x, 0);
+  s21_mpf_cbrt(&r, &x);
+  ASSERT(s21_mpf_is_zero(&r) && r.sign == 0, "cbrt(+0) = +0");
+
+  s21_mpf_set_zero(&x, 1);
+  s21_mpf_cbrt(&r, &x);
+  ASSERT(s21_mpf_is_zero(&r) && r.sign == 1, "cbrt(-0) = -0");
+
+  s21_mpf_set_inf(&x, 0);
+  s21_mpf_cbrt(&r, &x);
+  ASSERT(s21_mpf_is_inf(&r) && r.sign == 0, "cbrt(+inf) = +inf");
+
+  s21_mpf_set_inf(&x, 1);
+  s21_mpf_cbrt(&r, &x);
+  ASSERT(s21_mpf_is_inf(&r) && r.sign == 1, "cbrt(-inf) = -inf");
+
+  s21_mpf_set_nan(&x);
+  s21_mpf_cbrt(&r, &x);
+  ASSERT(s21_mpf_is_nan(&r), "cbrt(NaN) = NaN");
+
+  /* NULL */
+  ASSERT(s21_mpf_cbrt(NULL, &x) == -1, "cbrt: NULL res");
+  ASSERT(s21_mpf_cbrt(&r, NULL) == -1, "cbrt: NULL x");
+
+  s21_mpf_clear(&x);
+  s21_mpf_clear(&r);
+  s21_mpf_clear(&e);
+  s21_mpf_clear(&diff);
+  s21_mpf_clear(&thr);
+  printf("[ok] cbrt\n");
+}
+
 static void test_ulp_diagnostics(void) {
   struct {
     const char *name;
@@ -4052,8 +4288,10 @@ int main(void) {
       {"set_str",                          test_set_str},
       {"get_str",                          test_get_str},
       {"base conversion (2/8/16/36)",      test_base_conversion},
-      {"trunc / floor / ceil / round",      test_rounding_utils},
-      {"fmod",                              test_fmod},
+      {"trunc / floor / ceil / round",     test_rounding_utils},
+      {"fmod",                             test_fmod},
+      {"log1p / expm1",                    test_log1p_expm1},
+      {"cbrt",                             test_cbrt},
       {"ulp diagnostics",                  test_ulp_diagnostics},
   };
   const size_t n = sizeof(tests) / sizeof(tests[0]);

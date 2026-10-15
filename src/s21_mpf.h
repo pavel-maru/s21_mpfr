@@ -180,6 +180,27 @@ int s21_mpf_sqrt(s21_mpf_t *res, const s21_mpf_t *x);
 int s21_mpf_exp(s21_mpf_t *res, const s21_mpf_t *x);
 int s21_mpf_log(s21_mpf_t *res, const s21_mpf_t *x);
 
+/* log(1 + x) с повышенной точностью при малых |x|.
+   Для малых |x| добавка guard-битов, пропорциональная -x->exp,
+   компенсирует cancelation в 1 + x.  Для |x| < 2^(-prec/2)
+   результат равен x с точностью выше prec.
+
+   Домен x > -1:  log1p(-1) = -inf, log1p(x<-1) = NaN,
+   log1p(+inf) = +inf, log1p(-inf) = NaN. */
+int s21_mpf_log1p(s21_mpf_t *res, const s21_mpf_t *x);
+
+/* exp(x) - 1 с повышенной точностью при малых |x|.
+   Guard-биты компенсируют cancelation в exp(x) - 1.
+   Для |x| < 2^(-prec/2) результат равен x.
+
+   expm1(-inf) = -1, expm1(+inf) = +inf. */
+int s21_mpf_expm1(s21_mpf_t *res, const s21_mpf_t *x);
+
+/* Кубический корень через метод Ньютона с seed из double.
+   Определён для любого знака: cbrt(-8) = -2.
+   cbrt(±0) = ±0, cbrt(±inf) = ±inf. */
+int s21_mpf_cbrt(s21_mpf_t *res, const s21_mpf_t *x);
+
 /* log2(x) через reduction: x = 2^k · y, y ∈ [1, 2),
    log2(x) = k + log2(y).  Для x = 2^m результат точен
    (k = m, log2(1) = 0). */
