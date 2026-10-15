@@ -105,6 +105,84 @@ int s21_mpf_sqrt(s21_mpf_t *res, const s21_mpf_t *x) {
 }
 
 /* ============================================================
+   Евклидова норма hypot(x, y) = √(x² + y²).
+
+   Прямое вычисление x² + y² переполняется при |x| ~ 2^(prec/2)
+   и теряет точность при разнице порядков.  Масштабируем на
+   m = max(|x|, |y|):
+
+     hypot(x, y) = m · √((x/m)² + (y/m)²)
+
+   При m = 0 возвращаем +0.  Спецзначения — по C99:
+   hypot(±inf, anything) = +inf (даже если второй аргумент NaN);
+   hypot(NaN, y ≠ ±inf) = NaN. */
+int s21_mpf_hypot(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
+  if (res == NULL || x == NULL || y == NULL) return -1;
+
+  /* ±inf доминирует над NaN — это стандартное поведение hypot. */
+  if (x->kind == S21_MPF_INF || y->kind == S21_MPF_INF) {
+    s21_mpf_set_inf(res, 0);
+    return 0;
+  }
+  if (x->kind == S21_MPF_NAN || y->kind == S21_MPF_NAN) {
+    s21_mpf_set_nan(res);
+    return 0;
+  }
+  if (x->kind == S21_MPF_ZERO && y->kind == S21_MPF_ZERO) {
+    s21_mpf_set_zero(res, 0);
+    return 0;
+  }
+  /* Один из аргументов — ноль: hypot(x, 0) = |x|, точно. */
+  if (x->kind == S21_MPF_ZERO) {
+    s21_mpf_abs(res, y);
+    return 0;
+  }
+  if (y->kind == S21_MPF_ZERO) {
+    s21_mpf_abs(res, x);
+    return 0;
+  }
+
+  uint32_t wp = res->prec + 64;
+
+  s21_mpf_stack_t ax_s, ay_s, m_s, xm_s, ym_s, sum_s, sq_s, root_s;
+  s21_mpf_stack_init(&ax_s,   wp);
+  s21_mpf_stack_init(&ay_s,   wp);
+  s21_mpf_stack_init(&m_s,    wp);
+  s21_mpf_stack_init(&xm_s,   wp);
+  s21_mpf_stack_init(&ym_s,   wp);
+  s21_mpf_stack_init(&sum_s,  wp);
+  s21_mpf_stack_init(&sq_s,   wp);
+  s21_mpf_stack_init(&root_s, wp);
+
+  s21_mpf_abs(&ax_s.mpf, x);
+  s21_mpf_abs(&ay_s.mpf, y);
+
+  if (s21_mpf_cmp(&ax_s.mpf, &ay_s.mpf) >= 0)
+    s21_mpf_set(&m_s.mpf, &ax_s.mpf);
+  else
+    s21_mpf_set(&m_s.mpf, &ay_s.mpf);
+
+  s21_mpf_div_raw(&xm_s.mpf, &ax_s.mpf, &m_s.mpf);
+  s21_mpf_div_raw(&ym_s.mpf, &ay_s.mpf, &m_s.mpf);
+  s21_mpf_mul_raw(&sq_s.mpf,  &xm_s.mpf, &xm_s.mpf);
+  s21_mpf_mul_raw(&sum_s.mpf, &ym_s.mpf, &ym_s.mpf);
+  s21_mpf_add_raw(&sum_s.mpf, &sum_s.mpf, &sq_s.mpf);
+  s21_mpf_sqrt(&root_s.mpf, &sum_s.mpf);
+  s21_mpf_mul_raw(&sum_s.mpf, &root_s.mpf, &m_s.mpf);
+  s21_mpf_set(res, &sum_s.mpf);
+
+  s21_mpf_stack_clear(&ax_s);
+  s21_mpf_stack_clear(&ay_s);
+  s21_mpf_stack_clear(&m_s);
+  s21_mpf_stack_clear(&xm_s);
+  s21_mpf_stack_clear(&ym_s);
+  s21_mpf_stack_clear(&sum_s);
+  s21_mpf_stack_clear(&sq_s);
+  s21_mpf_stack_clear(&root_s);
+  return 0;
+}
+
+/* ============================================================
    Экспонента
    ============================================================ */
 
@@ -344,6 +422,112 @@ int s21_mpf_log(s21_mpf_t *res, const s21_mpf_t *x) {
 
   s21_mpf_clear(&y);
   s21_mpf_clear(&log_y);
+  return 0;
+}
+
+/* ============================================================
+   log2(x) через reduction по степеням двойки.
+
+   x = 2^k · y,  y ∈ [1, 2),  log2(x) = k + log2(y).
+
+   Разложение по 2^k — точное, потому что 2^k представимо
+   в бинарном mpf.  Для x = 2^m: k = m, y = 1, log2(1) = 0,
+   результат = m точно (без округления).
+
+   log2(y) = ln(y) / ln(2), где ln(y) — из log_unit_interval
+   (тот же atanh-ряд с sqrt-reduction, что и в log).
+
+   Стоимость: один log_unit_interval + ln2 + одно деление.
+   Это дешевле, чем полный log(x) / ln(2), потому что
+   log_reduce_to_unit уже сделан. */
+int s21_mpf_log2(s21_mpf_t *res, const s21_mpf_t *x) {
+  if (res == NULL || x == NULL) return -1;
+  if (x->kind == S21_MPF_NAN) {
+    s21_mpf_set_nan(res);
+    return 0;
+  }
+  if (x->kind == S21_MPF_ZERO) {
+    s21_mpf_set_inf(res, 1);
+    return 0;
+  }
+  if (x->sign == 1) {
+    s21_mpf_set_nan(res);
+    return 0;
+  }
+  if (x->kind == S21_MPF_INF) {
+    s21_mpf_set_inf(res, 0);
+    return 0;
+  }
+
+  uint32_t wp = res->prec + 64;
+
+  int64_t k;
+  s21_mpf_t y, log_y, ln2, quot, kk;
+  s21_mpf_init2(&y, wp);
+  s21_mpf_init2(&log_y, wp);
+  s21_mpf_init2(&ln2, wp);
+  s21_mpf_init2(&quot, wp);
+  s21_mpf_init2(&kk, wp);
+
+  log_reduce_to_unit(&y, &k, x);
+  log_unit_interval(&log_y, &y, wp);
+  log_compute_ln2(&ln2, wp);
+  s21_mpf_div_raw(&quot, &log_y, &ln2);
+  s21_mpf_set_si(&kk, (long)k);
+  s21_mpf_add_raw(&quot, &quot, &kk);
+  s21_mpf_set(res, &quot);
+
+  s21_mpf_clear(&y);
+  s21_mpf_clear(&log_y);
+  s21_mpf_clear(&ln2);
+  s21_mpf_clear(&quot);
+  s21_mpf_clear(&kk);
+  return 0;
+}
+
+/* ============================================================
+   log10(x) = log(x) / ln(10).
+
+   Reduction по 10^k невозможен точно: 10^k содержит множитель
+   5^k и не представимо в бинарном mpf.  Поэтому — прямое
+   деление; ln(10) вычисляется через s21_mpf_log от x = 10. */
+int s21_mpf_log10(s21_mpf_t *res, const s21_mpf_t *x) {
+  if (res == NULL || x == NULL) return -1;
+  if (x->kind == S21_MPF_NAN) {
+    s21_mpf_set_nan(res);
+    return 0;
+  }
+  if (x->kind == S21_MPF_ZERO) {
+    s21_mpf_set_inf(res, 1);
+    return 0;
+  }
+  if (x->sign == 1) {
+    s21_mpf_set_nan(res);
+    return 0;
+  }
+  if (x->kind == S21_MPF_INF) {
+    s21_mpf_set_inf(res, 0);
+    return 0;
+  }
+
+  uint32_t wp = res->prec + 64;
+
+  s21_mpf_t ten, log_x, log_ten, quot;
+  s21_mpf_init2(&ten, wp);
+  s21_mpf_init2(&log_x, wp);
+  s21_mpf_init2(&log_ten, wp);
+  s21_mpf_init2(&quot, wp);
+
+  s21_mpf_set_ui(&ten, 10);
+  s21_mpf_log(&log_x, x);
+  s21_mpf_log(&log_ten, &ten);
+  s21_mpf_div_raw(&quot, &log_x, &log_ten);
+  s21_mpf_set(res, &quot);
+
+  s21_mpf_clear(&ten);
+  s21_mpf_clear(&log_x);
+  s21_mpf_clear(&log_ten);
+  s21_mpf_clear(&quot);
   return 0;
 }
 
@@ -761,6 +945,206 @@ int s21_mpf_pow(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
   s21_mpf_stack_clear(&yw_s);
   s21_mpf_stack_clear(&ylg_s);
   s21_mpf_stack_clear(&r_s);
+  return 0;
+}
+
+/* ============================================================
+   Целочисленный показатель: pow_ui и pow_si.
+
+   pow_ui использует бинарное возведение в степень:
+     result = 1; base = x
+     while n > 0:
+       if n & 1: result *= base
+       n >>= 1
+       if n > 0: base *= base
+
+   Точнее общего pow: нет exp(log) round-trip, нет guard-потерь.
+   Для x = 2 результат — точно 2^n.
+
+   pow_si для n < 0: 1 / pow_ui(x, |n|).  Для n = LONG_MIN
+   используем безопасное взятие модуля через -(n + 1) + 1.
+   ============================================================ */
+
+int s21_mpf_pow_ui(s21_mpf_t *res, const s21_mpf_t *x, unsigned long n) {
+  if (res == NULL || x == NULL) return -1;
+
+  if (n == 0) {
+    s21_mpf_set_ui(res, 1);
+    return 0;
+  }
+  if (n == 1) {
+    s21_mpf_set(res, x);
+    return 0;
+  }
+
+  if (x->kind == S21_MPF_NAN) {
+    s21_mpf_set_nan(res);
+    return 0;
+  }
+
+  int odd_n = (int)(n & 1);
+
+  if (x->kind == S21_MPF_ZERO) {
+    int sign = (x->sign && odd_n) ? 1 : 0;
+    s21_mpf_set_zero(res, sign);
+    return 0;
+  }
+  if (x->kind == S21_MPF_INF) {
+    int sign = (x->sign && odd_n) ? 1 : 0;
+    s21_mpf_set_inf(res, sign);
+    return 0;
+  }
+
+  /* x — NORMAL.  Бинарное возведение. */
+  uint32_t wp = res->prec + 64;
+
+  s21_mpf_stack_t base_s, result_s;
+  s21_mpf_stack_init(&base_s,   wp);
+  s21_mpf_stack_init(&result_s, wp);
+
+  s21_mpf_set(&base_s.mpf, x);
+  s21_mpf_set_ui(&result_s.mpf, 1);
+
+  while (n > 0) {
+    if (n & 1) s21_mpf_mul_raw(&result_s.mpf, &result_s.mpf, &base_s.mpf);
+    n >>= 1;
+    if (n > 0) s21_mpf_mul_raw(&base_s.mpf, &base_s.mpf, &base_s.mpf);
+  }
+
+  s21_mpf_set(res, &result_s.mpf);
+
+  s21_mpf_stack_clear(&base_s);
+  s21_mpf_stack_clear(&result_s);
+  return 0;
+}
+
+int s21_mpf_pow_si(s21_mpf_t *res, const s21_mpf_t *x, long n) {
+  if (res == NULL || x == NULL) return -1;
+
+  if (n >= 0) return s21_mpf_pow_ui(res, x, (unsigned long)n);
+
+  /* n < 0.  Безопасное |n| даже для LONG_MIN. */
+  unsigned long abs_n = (unsigned long)(-(n + 1)) + 1UL;
+
+  uint32_t wp = res->prec + 64;
+
+  s21_mpf_stack_t p_s, one_s, r_s;
+  s21_mpf_stack_init(&p_s,   wp);
+  s21_mpf_stack_init(&one_s, wp);
+  s21_mpf_stack_init(&r_s,   wp);
+
+  int rc = s21_mpf_pow_ui(&p_s.mpf, x, abs_n);
+  if (rc != 0) {
+    s21_mpf_stack_clear(&p_s);
+    s21_mpf_stack_clear(&one_s);
+    s21_mpf_stack_clear(&r_s);
+    return rc;
+  }
+
+  /* 1 / p_s: обработка спецзначений до div_raw.
+     div_raw ожидает оба операнда NORMAL и совпадающие с res->prec. */
+  if (p_s.mpf.kind != S21_MPF_NORMAL) {
+    if (p_s.mpf.kind == S21_MPF_ZERO)
+      s21_mpf_set_inf(res, p_s.mpf.sign);
+    else if (p_s.mpf.kind == S21_MPF_INF)
+      s21_mpf_set_zero(res, p_s.mpf.sign);
+    else
+      s21_mpf_set_nan(res);
+    s21_mpf_stack_clear(&p_s);
+    s21_mpf_stack_clear(&one_s);
+    s21_mpf_stack_clear(&r_s);
+    return 0;
+  }
+
+  s21_mpf_set_ui(&one_s.mpf, 1);
+  s21_mpf_div_raw(&r_s.mpf, &one_s.mpf, &p_s.mpf); /* r_s.prec = wp */
+  s21_mpf_set(res, &r_s.mpf);
+
+  s21_mpf_stack_clear(&p_s);
+  s21_mpf_stack_clear(&one_s);
+  s21_mpf_stack_clear(&r_s);
+  return 0;
+}
+
+/* ============================================================
+   Корень n-й степени: root(x, n) = x^(1/n).
+
+   Спецзначения:
+     root(x, 1)          = x
+     root(x, 2)          = sqrt(x)
+     root(x, 0)          = NaN
+     root(+0, n)         = +0
+     root(-0, нечётное)  = -0
+     root(-0, чётное)    = +0
+     root(+inf, n)       = +inf
+     root(-inf, нечёт.)  = -inf
+     root(-inf, чётное)  = NaN
+     root(x<0, чётное)   = NaN
+
+   Общий случай: exp(log|x| / n), знак отдельно. */
+int s21_mpf_root(s21_mpf_t *res, const s21_mpf_t *x, unsigned long n) {
+  if (res == NULL || x == NULL) return -1;
+
+  if (n == 0) {
+    s21_mpf_set_nan(res);
+    return 0;
+  }
+  if (n == 1) {
+    s21_mpf_set(res, x);
+    return 0;
+  }
+  if (n == 2) return s21_mpf_sqrt(res, x);
+
+  if (x->kind == S21_MPF_NAN) {
+    s21_mpf_set_nan(res);
+    return 0;
+  }
+
+  int odd_n = (int)(n & 1);
+
+  if (x->kind == S21_MPF_ZERO) {
+    int sign = (x->sign && odd_n) ? 1 : 0;
+    s21_mpf_set_zero(res, sign);
+    return 0;
+  }
+  if (x->kind == S21_MPF_INF) {
+    if (x->sign && !odd_n) {
+      s21_mpf_set_nan(res);
+    } else {
+      s21_mpf_set_inf(res, x->sign);
+    }
+    return 0;
+  }
+
+  /* x — NORMAL.  Отрицательный x требует нечётного n. */
+  if (x->sign && !odd_n) {
+    s21_mpf_set_nan(res);
+    return 0;
+  }
+
+  uint32_t wp = res->prec + 64;
+
+  s21_mpf_stack_t xa_s, log_a_s, n_s, quot_s, result_s;
+  s21_mpf_stack_init(&xa_s,     wp);
+  s21_mpf_stack_init(&log_a_s,  wp);
+  s21_mpf_stack_init(&n_s,      wp);
+  s21_mpf_stack_init(&quot_s,   wp);
+  s21_mpf_stack_init(&result_s, wp);
+
+  s21_mpf_abs(&xa_s.mpf, x);
+  s21_mpf_log(&log_a_s.mpf, &xa_s.mpf);
+  s21_mpf_set_ui(&n_s.mpf, n);
+  s21_mpf_div_raw(&quot_s.mpf, &log_a_s.mpf, &n_s.mpf);
+  s21_mpf_exp(&result_s.mpf, &quot_s.mpf);
+
+  if (x->sign) result_s.mpf.sign = 1;
+  s21_mpf_set(res, &result_s.mpf);
+
+  s21_mpf_stack_clear(&xa_s);
+  s21_mpf_stack_clear(&log_a_s);
+  s21_mpf_stack_clear(&n_s);
+  s21_mpf_stack_clear(&quot_s);
+  s21_mpf_stack_clear(&result_s);
   return 0;
 }
 

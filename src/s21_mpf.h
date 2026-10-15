@@ -128,11 +128,45 @@ void s21_mpf_normalize(s21_mpf_t *x);
    0 при успехе, -1 при NULL. */
 int s21_mpf_pow(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y);
 
+/* Целочисленный показатель: x^n, n ≥ 0.
+   Бинарное возведение в степень, без exp/log — точнее и быстрее
+   общего pow.  Спецзначения — по общим правилам pow. */
+int s21_mpf_pow_ui(s21_mpf_t *res, const s21_mpf_t *x, unsigned long n);
+
+/* Целочисленный знаковый показатель.  Для n < 0 —
+   1 / pow_ui(x, -n) с корректной обработкой x = ±0 / ±inf. */
+int s21_mpf_pow_si(s21_mpf_t *res, const s21_mpf_t *x, long n);
+
+/* Корень n-й степени: x^(1/n), n ≥ 1.
+     root(x, 1) = x
+     root(x, 2) = sqrt(x)
+     root(x, 0) = NaN
+     root(x<0, чётное n) = NaN
+     root(±0, нечётное n) = ±0
+   Общий случай: exp(log|x| / n), знак отдельно. */
+int s21_mpf_root(s21_mpf_t *res, const s21_mpf_t *x, unsigned long n);
+
 /* ============== Элементарные функции ============== */
 
 int s21_mpf_sqrt(s21_mpf_t *res, const s21_mpf_t *x);
 int s21_mpf_exp(s21_mpf_t *res, const s21_mpf_t *x);
 int s21_mpf_log(s21_mpf_t *res, const s21_mpf_t *x);
+
+/* log2(x) через reduction: x = 2^k · y, y ∈ [1, 2),
+   log2(x) = k + log2(y).  Для x = 2^m результат точен
+   (k = m, log2(1) = 0). */
+int s21_mpf_log2(s21_mpf_t *res, const s21_mpf_t *x);
+
+/* log10(x) = log(x) / ln(10).
+   10^k не представимо точно в бинарном mpf, поэтому
+   reduction 10^k не даёт выигрыша против прямого деления. */
+int s21_mpf_log10(s21_mpf_t *res, const s21_mpf_t *x);
+
+/* hypot(x, y) = √(x² + y²) со масштабированием по max(|x|, |y|).
+   Без масштабирования x² + y² теряет точность при разнице
+   порядков и переполняется при |x| ~ 2^(prec/2).  Спецзначения
+   по C99: hypot(±inf, NaN) = +inf, hypot(NaN, non-inf) = NaN. */
+int s21_mpf_hypot(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y);
 
 /* ============== Константы ============== */
 
