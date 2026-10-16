@@ -132,6 +132,28 @@ int s21_mpf_sub(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y);
 int s21_mpf_mul(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y);
 int s21_mpf_div(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y);
 
+/* ============== Fused multiply-add ============== */
+
+/* res = x·y + z с одним округлением в конце (RNDN).
+   Промежуточное произведение x·y не округляется — это
+   отличает fma от mul + add.  Классический пример: при
+   x = 1 + 2^-50, y = 1 - 2^-50, z = -1 и prec = 100 fma
+   даёт -2^-100, тогда как mul+add возвращает 0 (mul теряет
+   младшие биты при округлении до prec).
+
+   Спецзначения — по C99 / IEEE 754-2008 F.10.10.1:
+     fma(NaN, y, z)          = NaN
+     fma(±inf, 0, z)         = NaN
+     fma(±inf, y≠0, z)       = ±inf (знак = sign(inf)·sign(y))
+     fma(±inf, y≠0, z=∓inf)  = NaN (конфликт знаков)
+     fma(x, y, ±inf)         = ±inf
+     fma(±0, y, z)           = z  (±0 сохраняется по RNDN,
+                                    если z = ∓0)
+
+   0 при успехе, -1 при NULL. */
+int s21_mpf_fma(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y,
+                const s21_mpf_t *z);
+
 void s21_mpf_neg(s21_mpf_t *res, const s21_mpf_t *x);
 void s21_mpf_abs(s21_mpf_t *res, const s21_mpf_t *x);
 void s21_mpf_normalize(s21_mpf_t *x);

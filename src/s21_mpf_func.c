@@ -964,6 +964,108 @@ int s21_mpf_fmod(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
   return 0;
 }
 
+/* ============================================================
+   Fused multiply-add: x·y + z с одним округлением.
+
+   Точность.  Стандартный подход — считать на wp = 2·prec + 64:
+   произведение двух prec-битных чисел точно укладывается
+   в 2·prec бит, сложение с z — до 2·prec + 1 бит, и вся
+   накопленная точность затем округляется один раз до prec.
+
+   Спецзначения — по C99 F.10.10.1.  Порядок проверок важен:
+   NaN-протокол, затем inf в x/y, затем inf в z, затем
+   x·y = ±0, и только в конце общий случай.
+
+   Знак нуля.  Когда x·y = ±0 и z = ±0, результат — по
+   правилу IEEE 754 для суммы двух нулей: sign = prod_sign
+   AND z_sign.  То есть fma(+0, y, -0) = +0, fma(-0, y, +0)
+   = +0, fma(-0, y, -0) = -0.
+   ============================================================ */
+
+int s21_mpf_fma(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y,
+                const s21_mpf_t *z) {
+  if (res == NULL || x == NULL || y == NULL || z == NULL) return -1;
+
+  /* NaN-протокол: любой NaN → NaN. */
+  if (x->kind == S21_MPF_NAN || y->kind == S21_MPF_NAN ||
+      z->kind == S21_MPF_NAN) {
+    s21_mpf_set_nan(res);
+    return 0;
+  }
+
+  /* Тип произведения x·y. */
+  int prod_inf = 0;
+  int prod_zero = 0;
+
+  if (x->kind == S21_MPF_INF || y->kind == S21_MPF_INF) {
+    if (x->kind == S21_MPF_ZERO || y->kind == S21_MPF_ZERO) {
+      /* inf · 0 = NaN. */
+      s21_mpf_set_nan(res);
+      return 0;
+    }
+    prod_inf = 1;
+  } else if (x->kind == S21_MPF_ZERO || y->kind == S21_MPF_ZERO) {
+    prod_zero = 1;
+  }
+
+  int prod_sign = x->sign ^ y->sign;
+
+  if (prod_inf) {
+    /* inf + z: конфликт знаков → NaN. */
+    if (z->kind == S21_MPF_INF && z->sign != prod_sign) {
+      s21_mpf_set_nan(res);
+      return 0;
+    }
+    s21_mpf_set_inf(res, prod_sign);
+    return 0;
+  }
+
+  if (z->kind == S21_MPF_INF) {
+    s21_mpf_set_inf(res, z->sign);
+    return 0;
+  }
+
+  if (prod_zero) {
+    /* x·y = ±0.  Результат — z + (±0). */
+    if (z->kind == S21_MPF_ZERO) {
+      /* IEEE 754: сумма двух нулей даёт −0 только когда оба −0. */
+      int zero_sign = (prod_sign && z->sign) ? 1 : 0;
+      s21_mpf_set_zero(res, zero_sign);
+      return 0;
+    }
+    s21_mpf_set(res, z);
+    return 0;
+  }
+
+  /* Все три NORMAL, x·y ≠ 0.  Точное умножение на 2·prec,
+     сложение с z на 2·prec + 64, одно округление до prec. */
+  uint32_t wp = 2 * res->prec + 64;
+
+  s21_mpf_stack_t xs, ys, zs, prod_s, sum_s;
+  s21_mpf_stack_init(&xs, wp);
+  s21_mpf_stack_init(&ys, wp);
+  s21_mpf_stack_init(&zs, wp);
+  s21_mpf_stack_init(&prod_s, wp);
+  s21_mpf_stack_init(&sum_s, wp);
+
+  s21_mpf_set(&xs.mpf, x);
+  s21_mpf_set(&ys.mpf, y);
+  s21_mpf_set(&zs.mpf, z);
+
+  int rc = s21_mpf_mul_raw(&prod_s.mpf, &xs.mpf, &ys.mpf);
+  if (rc == 0) {
+    s21_mpf_add_raw(&sum_s.mpf, &prod_s.mpf, &zs.mpf);
+    s21_mpf_set(res, &sum_s.mpf); /* сужение wp → prec, RNDN */
+  }
+
+  s21_mpf_stack_clear(&xs);
+  s21_mpf_stack_clear(&ys);
+  s21_mpf_stack_clear(&zs);
+  s21_mpf_stack_clear(&prod_s);
+  s21_mpf_stack_clear(&sum_s);
+  return rc;
+}
+
 /* Внутренний аналог trunc для reduce_2pi: возвращает void,
    чтобы не переписывать вызов в round_nearest. */
 static void s21_mpf_round_nearest(s21_mpf_t *res, const s21_mpf_t *x) {

@@ -4193,6 +4193,179 @@ static void test_cbrt(void) {
   printf("[ok] cbrt\n");
 }
 
+static void test_fma(void) {
+  s21_mpf_t x, y, z, r, t, u, e;
+  s21_mpf_init2(&x, 100);
+  s21_mpf_init2(&y, 100);
+  s21_mpf_init2(&z, 100);
+  s21_mpf_init2(&r, 100);
+  s21_mpf_init2(&t, 100);
+  s21_mpf_init2(&u, 100);
+  s21_mpf_init2(&e, 100);
+
+  /* Тривиальный случай: fma == mul + add, когда промежуточный точен. */
+  s21_mpf_set_ui(&x, 2);
+  s21_mpf_set_ui(&y, 3);
+  s21_mpf_set_ui(&z, 4);
+  s21_mpf_fma(&r, &x, &y, &z);
+  s21_mpf_set_ui(&e, 10);
+  ASSERT(s21_mpf_cmp(&r, &e) == 0, "fma(2, 3, 4) = 10");
+
+  s21_mpf_set_ui(&x, 5);
+  s21_mpf_set_ui(&y, 5);
+  s21_mpf_set_si(&z, -25);
+  s21_mpf_fma(&r, &x, &y, &z);
+  ASSERT(s21_mpf_is_zero(&r) && r.sign == 0, "fma(5, 5, -25) = +0");
+
+  /* x = 0 или y = 0: fma = z. */
+  s21_mpf_set_ui(&x, 0);
+  s21_mpf_set_ui(&y, 5);
+  s21_mpf_set_ui(&z, 3);
+  s21_mpf_fma(&r, &x, &y, &z);
+  s21_mpf_set_ui(&e, 3);
+  ASSERT(s21_mpf_cmp(&r, &e) == 0, "fma(0, 5, 3) = 3");
+
+  s21_mpf_set_ui(&x, 5);
+  s21_mpf_set_ui(&y, 0);
+  s21_mpf_set_ui(&z, 3);
+  s21_mpf_fma(&r, &x, &y, &z);
+  ASSERT(s21_mpf_cmp(&r, &e) == 0, "fma(5, 0, 3) = 3");
+
+  /* Ключевой тест: fused-эффект.
+     x = 1 + 2^-80, y = 1 - 2^-80, z = -1 при prec = 100.
+     Точное x*y = 1 - 2^-160 требует 160 бит мантиссы и при
+     prec = 100 не представимо.  mul(x, y) округляет 1 - 2^-160
+     до 1, потом 1 - 1 = 0.  fma работает на wp = 2·prec + 64
+     и получает -2^-160 точно.
+
+     Раньше здесь стоял x = 1 + 2^-50, но при prec = 100
+     произведение 1 - 2^-100 влезает в 100 бит (мантисса
+     2^100 - 1, exp = 0) — mul даёт точный результат, и
+     fused-эффект не проявляется.  Проверка mul+add != fma
+     падала.  Расстояние 80 гарантирует, что произведение
+     шире prec. */
+  {
+    s21_mpf_t tiny;
+    s21_mpf_init2(&tiny, 100);
+    s21_mpf_set_ui(&tiny, 1);
+    tiny.exp -= 80;
+    s21_mpf_normalize(&tiny);
+
+    s21_mpf_set_ui(&x, 1);
+    s21_mpf_add(&x, &x, &tiny);   /* x = 1 + 2^-80 */
+
+    s21_mpf_set_ui(&y, 1);
+    s21_mpf_sub(&y, &y, &tiny);   /* y = 1 - 2^-80 */
+
+    s21_mpf_set_si(&z, -1);
+
+    s21_mpf_fma(&r, &x, &y, &z);
+
+    /* Ожидаем -2^-160. */
+    s21_mpf_set_ui(&e, 1);
+    e.exp -= 160;
+    e.sign = 1;
+    s21_mpf_normalize(&e);
+
+    ASSERT(s21_mpf_cmp(&r, &e) == 0,
+           "fma(1+2^-80, 1-2^-80, -1) = -2^-160");
+
+    /* Наивный mul + add даёт другое — доказывает fused-эффект. */
+    s21_mpf_mul(&t, &x, &y);
+    s21_mpf_add(&u, &t, &z);
+    ASSERT(s21_mpf_cmp(&u, &r) != 0, "mul+add != fma (fused effect)");
+
+    s21_mpf_clear(&tiny);
+  }
+
+  /* Спецзначения: inf в x. */
+  s21_mpf_set_inf(&x, 0);
+  s21_mpf_set_ui(&y, 2);
+  s21_mpf_set_ui(&z, 5);
+  s21_mpf_fma(&r, &x, &y, &z);
+  ASSERT(s21_mpf_is_inf(&r) && r.sign == 0, "fma(+inf, 2, 5) = +inf");
+
+  s21_mpf_set_inf(&x, 1);
+  s21_mpf_set_ui(&y, 2);
+  s21_mpf_set_ui(&z, 5);
+  s21_mpf_fma(&r, &x, &y, &z);
+  ASSERT(s21_mpf_is_inf(&r) && r.sign == 1, "fma(-inf, 2, 5) = -inf");
+
+  s21_mpf_set_inf(&x, 0);
+  s21_mpf_set_ui(&y, 0);
+  s21_mpf_set_ui(&z, 5);
+  s21_mpf_fma(&r, &x, &y, &z);
+  ASSERT(s21_mpf_is_nan(&r), "fma(+inf, 0, 5) = NaN");
+
+  /* Конфликт знаков: inf + (-inf). */
+  s21_mpf_set_inf(&x, 0);
+  s21_mpf_set_ui(&y, 2);
+  s21_mpf_set_inf(&z, 1);
+  s21_mpf_fma(&r, &x, &y, &z);
+  ASSERT(s21_mpf_is_nan(&r), "fma(+inf, 2, -inf) = NaN");
+
+  /* Согласованные бесконечности. */
+  s21_mpf_set_inf(&x, 0);
+  s21_mpf_set_ui(&y, 2);
+  s21_mpf_set_inf(&z, 0);
+  s21_mpf_fma(&r, &x, &y, &z);
+  ASSERT(s21_mpf_is_inf(&r) && r.sign == 0, "fma(+inf, 2, +inf) = +inf");
+
+  /* inf в z при конечном x*y. */
+  s21_mpf_set_ui(&x, 2);
+  s21_mpf_set_ui(&y, 3);
+  s21_mpf_set_inf(&z, 1);
+  s21_mpf_fma(&r, &x, &y, &z);
+  ASSERT(s21_mpf_is_inf(&r) && r.sign == 1, "fma(2, 3, -inf) = -inf");
+
+  /* NaN. */
+  s21_mpf_set_nan(&x);
+  s21_mpf_set_ui(&y, 2);
+  s21_mpf_set_ui(&z, 5);
+  s21_mpf_fma(&r, &x, &y, &z);
+  ASSERT(s21_mpf_is_nan(&r), "fma(NaN, 2, 5) = NaN");
+
+  s21_mpf_set_ui(&x, 2);
+  s21_mpf_set_ui(&y, 3);
+  s21_mpf_set_nan(&z);
+  s21_mpf_fma(&r, &x, &y, &z);
+  ASSERT(s21_mpf_is_nan(&r), "fma(2, 3, NaN) = NaN");
+
+  /* Знак нуля: x*y = -0 с z = +0 → +0, с z = -0 → -0. */
+  s21_mpf_set_si(&x, -1);
+  s21_mpf_set_ui(&y, 0);
+  s21_mpf_set_zero(&z, 0);
+  s21_mpf_fma(&r, &x, &y, &z);
+  ASSERT(s21_mpf_is_zero(&r) && r.sign == 0, "fma(-1, 0, +0) = +0");
+
+  s21_mpf_set_si(&x, -1);
+  s21_mpf_set_ui(&y, 0);
+  s21_mpf_set_zero(&z, 1);
+  s21_mpf_fma(&r, &x, &y, &z);
+  ASSERT(s21_mpf_is_zero(&r) && r.sign == 1, "fma(-1, 0, -0) = -0");
+
+  s21_mpf_set_ui(&x, 1);
+  s21_mpf_set_ui(&y, 0);
+  s21_mpf_set_zero(&z, 0);
+  s21_mpf_fma(&r, &x, &y, &z);
+  ASSERT(s21_mpf_is_zero(&r) && r.sign == 0, "fma(1, 0, +0) = +0");
+
+  /* NULL. */
+  ASSERT(s21_mpf_fma(NULL, &x, &y, &z) == -1, "fma: NULL res");
+  ASSERT(s21_mpf_fma(&r, NULL, &y, &z) == -1, "fma: NULL x");
+  ASSERT(s21_mpf_fma(&r, &x, NULL, &z) == -1, "fma: NULL y");
+  ASSERT(s21_mpf_fma(&r, &x, &y, NULL) == -1, "fma: NULL z");
+
+  s21_mpf_clear(&x);
+  s21_mpf_clear(&y);
+  s21_mpf_clear(&z);
+  s21_mpf_clear(&r);
+  s21_mpf_clear(&t);
+  s21_mpf_clear(&u);
+  s21_mpf_clear(&e);
+  printf("[ok] fma\n");
+}
+
 static void test_ulp_diagnostics(void) {
   struct {
     const char *name;
@@ -4292,6 +4465,7 @@ int main(void) {
       {"fmod",                             test_fmod},
       {"log1p / expm1",                    test_log1p_expm1},
       {"cbrt",                             test_cbrt},
+      {"fma",                              test_fma},
       {"ulp diagnostics",                  test_ulp_diagnostics},
   };
   const size_t n = sizeof(tests) / sizeof(tests[0]);
