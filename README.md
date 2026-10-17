@@ -81,7 +81,7 @@
   в base 10 / 16 / 8 / 2.
 - `s21_mpf_bench` — микробенчмарк операций, включая сравнение
   тригонометрии с явной π и без; до `prec = 16384`.
-- Unit-тесты в `src/test.c`: 56 групп, с автоподсчётом в финале;
+- Unit-тесты в `src/test.c`: 57 групп, с автоподсчётом в финале;
   ULP-диагностика до `prec = 2048`.
 
 ## Что нового
@@ -113,6 +113,47 @@
 - v1.22.0: `fma` с одним округлением.
 - v1.23.0: C99 hexfloat на входе в `set_str` (base 16).
 - v1.24.0: `fma` в REPL (тернарная таблица).
+
+### v1.26.0 (2026-10-17)
+
+Patch wave: семь мелких улучшений по результатам финального
+code review.  Семантика существующего API не менялась, кроме
+одного добавления (`fprint` / `fprint_d`).  Тестов 56 → 57.
+
+- **`fix: div_raw`** — проверка `calloc` при OOM.  Раньше при
+  нехватке памяти `base` был `NULL`, `div_knuth` писал через
+  него.  Сигнатура и контракт не менялись; оба caller'а
+  (`s21_mpf_div`, `s21_mpf_pow_si`) уже проверяли `rc`.
+
+- **`fix: parse_special`** — явная проверка `strlen` перед
+  чтением `s[0..7]`.  Прежний код полагался на short-circuit
+  evaluation, что работало, но было хрупко при любой
+  переделке (array-of-conditions, `strncasecmp`).
+
+- **`fix: get_str_special`** — минимальный `bufsize` для `+inf`
+  теперь 4, а не 5.  `"+inf"` — 4 байта, `"-inf"` — 5;
+  прежняя проверка была асимметричной и отвергала валидный
+  вызов `get_str(buf, 4, ...)` для `+inf`.
+
+- **`feat: fprint / fprint_d`** — вывод в произвольный `FILE *`.
+  `print` / `print_d` — тонкие обёртки над `stdout`.  `NULL`
+  stream или `x` — no-op.  В `s21_mpf.h` добавлен
+  `#include <stdio.h>` (неизбежно для `FILE *`, MPFR платит
+  ту же цену).  Новая тест-группа `test_fprint` пишет в
+  `tmpfile()` и проверяет точные байты для `+inf` и `42`.
+
+- **`docs: s21_mpf_equal`** — уточнение семантики:
+  bit-identical, не numeric.  `equal(1@64, 1@128) == 0`, хотя
+  `cmp == 0`.  Для числового сравнения — `cmp`.
+
+- **`docs: s21_mpf_set_str`** — trailing whitespace отвергается
+  (`"42 "` → `-1`).  Намеренно, но неочевидно.
+
+- **`docs: s21_mpf_init2`** — `calloc` не проверяется; OOM
+  оставляет объект непригодным.  Задокументировано как
+  precondition, не исправлено (сигнатура `void` → `int`
+  прокаскадировала бы через всех caller'ов ради failure mode,
+  который не воспроизводится ниже prec ~10⁷).
 
 ### v1.25.0 (2026-10-17)
 
@@ -772,6 +813,15 @@ for (int i = 0; i < 1000; i++) {
 `n ≥ 2^16`.  Бинарный путь сохранён ниже порога и для
 `n` — степеней двойки.  Adaptive `k ∈ {3, 4, 5}` по размеру `n`.
 
+**v1.26.0**: без дефектов в библиотеке.  Три `fix`-коммита
+закрывают профилактические проблемы, ни одна из которых не
+воспроизводилась в тестах v1.25.1: OOM в `div_raw` (падение),
+потенциальное чтение за границей строки в `parse_special`
+(segfault при переписывании на array-of-conditions), асимметрия
+`bufsize` в `get_str_special` (`-1` для валидного `+inf` при
+`bufsize == 4`).  Плюс `feat: fprint` — расширение публичного
+API; `print` / `print_d` стали обёртками над новыми функциями.
+
 ### Разложение по файлам
 
 - `s21_mpf_core.c` — жизненный цикл, присваивание, `normalize`,
@@ -791,7 +841,9 @@ for (int i = 0; i < 1000; i++) {
 - `s21_mpf_io.c` — `set_str` (base 2..36 + C99 hexfloat),
   `get_str` и четыре её подпрограммы; хелперы `digit_value` /
   `digit_char` / `is_digit_in_base`; `pow_base_mpf`.
-- `s21_mpf_print.c` — `print`, `print_d`.
+- `s21_mpf_print.c` — `print`, `print_d`, `fprint`, `fprint_d`
+  (`print` / `print_d` — обёртки над `fprint` / `fprint_d`
+  с `stdout`).
 - `s21_mpf_internal.h` — внутренний API.
 - `repl.c` — REPL с кэшем π, 26 унарными, 7 бинарными
   и 1 тернарной функцией, тремя константами, выводом
@@ -925,6 +977,10 @@ NULL.
 `NaN` в любом аргументе, знак нуля (`fma(−1, 0, +0) = +0`,
 `fma(−1, 0, −0) = −0`, `fma(1, 0, +0) = +0`), NULL.
 
+`test_fprint` — `fprint`/`fprint_d` пишут в `tmpfile()`,
+проверяются точные байты вывода для `+inf` и `42`; NULL
+stream и NULL `x` — no-op без падения.
+
 `test_hexfloat` — префикс `0x` / `0X` (`0x1 = 1`, `0xff = 255`,
 `0XAB = 171`); дробная мантисса (`0x1.8 = 1.5`);
 `p`-экспонента со знаками (`0x1p4 = 16`, `0x1p-1 = 0.5`,
@@ -1026,7 +1082,7 @@ NULL.
 ## Чек-лист структурного программирования
 
 Проверка по семи принципам Дейкстры и их следствиям.  Состояние
-после v1.25.0.
+после v1.26.0.
 
 **Принципы:**
 
@@ -1123,6 +1179,7 @@ NULL.
 | 57 | `fma` в REPL (тернарная таблица) | v1.24.0 | ✅ |
 | 58 | Sliding window в `pow_ui` для `n ≥ 2^16` | v1.25.0 | ✅ |
 | 59 | clang-format по всем исходникам; фикс утечки в `test_hexfloat`; правки README | v1.25.1 | ✅ |
+| 60 | `div_raw` OOM; `parse_special` guard; `+inf` bufsize; `fprint`/`fprint_d`; docstring `equal`/`set_str`/`init2` | v1.26.0 | ✅ |
 
 ## Roadmap на будущее
 
@@ -1187,7 +1244,7 @@ NULL.
     ├── s21_mpf_arith.c      # арифметика, Knuth D, mul scratch, Карацуба
     ├── s21_mpf_func.c       # элементарные функции, trunc/floor/ceil/round/fmod/fma, log1p/expm1/cbrt, pow, pow_ui (sliding window), pow_si, root, log2, log10, hypot, гиперболические, тригонометрия, *_with_pi, AGM π
     ├── s21_mpf_io.c         # set_str (base 2..36 + hexfloat), get_str, digit_* helpers, pow_base_mpf
-    ├── s21_mpf_print.c      # print, print_d
+    ├── s21_mpf_print.c      # print, print_d, fprint, fprint_d
     ├── repl.c               # интерактивная утилита: 26 унарных, 7 бинарных, 1 тернарная, 3 константы, base 10/16/8/2
     ├── bench.c              # микробенчмарк
     └── test.c               # unit-тесты
