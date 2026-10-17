@@ -275,12 +275,13 @@ static int get_str_special(char *buf, size_t bufsize, int *exp_out,
     *exp_out = 0;
     return 1;
   }
-  if (x->kind == S21_MPF_INF) {
-    if (bufsize < 5) return -1;
-    strcpy(buf, x->sign ? "-inf" : "inf");
-    *exp_out = 0;
-    return 1;
-  }
+if (x->kind == S21_MPF_INF) {
+  size_t need = x->sign ? 5u : 4u;
+  if (bufsize < need) return -1;
+  strcpy(buf, x->sign ? "-inf" : "inf");
+  *exp_out = 0;
+  return 1;
+}
   if (x->kind == S21_MPF_ZERO) {
     if (bufsize < 3) return -1;
     strcpy(buf, x->sign ? "-0" : "0");
