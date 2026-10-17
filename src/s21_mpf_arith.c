@@ -564,17 +564,17 @@ int s21_mpf_div_raw(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
   size_t q_len = n + 1;
   size_t total = u_len + v_len + q_len;
 
-uint64_t stack_buf[4 * S21_MPF_STACK_LIMBS];
-int owned = 0;
-uint64_t *base;
-if (total <= 4 * S21_MPF_STACK_LIMBS) {
-  memset(stack_buf, 0, total * sizeof(uint64_t));
-  base = stack_buf;
-} else {
-  base = calloc(total, sizeof(uint64_t));
-  if (base == NULL) return -1;
-  owned = 1;
-}
+  uint64_t stack_buf[4 * S21_MPF_STACK_LIMBS];
+  int owned = 0;
+  uint64_t *base;
+  if (total <= 4 * S21_MPF_STACK_LIMBS) {
+    memset(stack_buf, 0, total * sizeof(uint64_t));
+    base = stack_buf;
+  } else {
+    base = calloc(total, sizeof(uint64_t));
+    if (base == NULL) return -1;
+    owned = 1;
+  }
   uint64_t *U = base;
   uint64_t *V = base + u_len;
   uint64_t *Q = base + u_len + v_len;

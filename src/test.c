@@ -4760,7 +4760,7 @@ int main(void) {
       {"set_str", test_set_str},
       {"get_str", test_get_str},
       {"base conversion (2/8/16/36)", test_base_conversion},
-      { "fprint / fprint_d", test_fprint },
+      {"fprint / fprint_d", test_fprint},
       {"trunc / floor / ceil / round", test_rounding_utils},
       {"fmod", test_fmod},
       {"log1p / expm1", test_log1p_expm1},

@@ -27,7 +27,10 @@ void s21_mpf_fprint(FILE *stream, const s21_mpf_t *x) {
 
 void s21_mpf_fprint_d(FILE *stream, const s21_mpf_t *x) {
   if (stream == NULL || x == NULL) return;
-  if (x->kind == S21_MPF_NAN) { fprintf(stream, "nan\n"); return; }
+  if (x->kind == S21_MPF_NAN) {
+    fprintf(stream, "nan\n");
+    return;
+  }
   if (x->kind == S21_MPF_INF) {
     fprintf(stream, "%sinf\n", x->sign ? "-" : "+");
     return;

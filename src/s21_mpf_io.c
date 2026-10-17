@@ -43,13 +43,11 @@ static int is_digit_in_base(char c, int base) {
 static int parse_special(const char *s, int sign, s21_mpf_t *x) {
   size_t slen = strlen(s);
 
-  if (slen >= 3 &&
-      tolower((unsigned char)s[0]) == 'i' &&
+  if (slen >= 3 && tolower((unsigned char)s[0]) == 'i' &&
       tolower((unsigned char)s[1]) == 'n' &&
       tolower((unsigned char)s[2]) == 'f') {
     size_t len = 3;
-    if (slen >= 8 &&
-        tolower((unsigned char)s[3]) == 'i' &&
+    if (slen >= 8 && tolower((unsigned char)s[3]) == 'i' &&
         tolower((unsigned char)s[4]) == 'n' &&
         tolower((unsigned char)s[5]) == 'i' &&
         tolower((unsigned char)s[6]) == 't' &&
@@ -61,8 +59,7 @@ static int parse_special(const char *s, int sign, s21_mpf_t *x) {
       return 1;
     }
   }
-  if (slen == 3 &&
-      tolower((unsigned char)s[0]) == 'n' &&
+  if (slen == 3 && tolower((unsigned char)s[0]) == 'n' &&
       tolower((unsigned char)s[1]) == 'a' &&
       tolower((unsigned char)s[2]) == 'n') {
     s21_mpf_set_nan(x);
@@ -275,13 +272,13 @@ static int get_str_special(char *buf, size_t bufsize, int *exp_out,
     *exp_out = 0;
     return 1;
   }
-if (x->kind == S21_MPF_INF) {
-  size_t need = x->sign ? 5u : 4u;
-  if (bufsize < need) return -1;
-  strcpy(buf, x->sign ? "-inf" : "inf");
-  *exp_out = 0;
-  return 1;
-}
+  if (x->kind == S21_MPF_INF) {
+    size_t need = x->sign ? 5u : 4u;
+    if (bufsize < need) return -1;
+    strcpy(buf, x->sign ? "-inf" : "inf");
+    *exp_out = 0;
+    return 1;
+  }
   if (x->kind == S21_MPF_ZERO) {
     if (bufsize < 3) return -1;
     strcpy(buf, x->sign ? "-0" : "0");
