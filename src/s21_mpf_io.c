@@ -41,25 +41,30 @@ static int is_digit_in_base(char c, int base) {
    ============================================================ */
 
 static int parse_special(const char *s, int sign, s21_mpf_t *x) {
-  if (tolower((unsigned char)s[0]) == 'i' &&
+  size_t slen = strlen(s);
+
+  if (slen >= 3 &&
+      tolower((unsigned char)s[0]) == 'i' &&
       tolower((unsigned char)s[1]) == 'n' &&
       tolower((unsigned char)s[2]) == 'f') {
     size_t len = 3;
-    if (tolower((unsigned char)s[3]) == 'i' &&
+    if (slen >= 8 &&
+        tolower((unsigned char)s[3]) == 'i' &&
         tolower((unsigned char)s[4]) == 'n' &&
         tolower((unsigned char)s[5]) == 'i' &&
         tolower((unsigned char)s[6]) == 't' &&
         tolower((unsigned char)s[7]) == 'y') {
       len = 8;
     }
-    if (s[len] == '\0') {
+    if (slen == len) {
       s21_mpf_set_inf(x, sign);
       return 1;
     }
   }
-  if (tolower((unsigned char)s[0]) == 'n' &&
+  if (slen == 3 &&
+      tolower((unsigned char)s[0]) == 'n' &&
       tolower((unsigned char)s[1]) == 'a' &&
-      tolower((unsigned char)s[2]) == 'n' && s[3] == '\0') {
+      tolower((unsigned char)s[2]) == 'n') {
     s21_mpf_set_nan(x);
     return 1;
   }
