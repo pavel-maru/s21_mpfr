@@ -13,11 +13,9 @@
    ------------------------------------------------------------ */
 
 void s21_mpf_shift_left_into(uint64_t *dst, size_t dst_count,
-                             const uint64_t *src, size_t src_count,
-                             int shift);
+                             const uint64_t *src, size_t src_count, int shift);
 void s21_mpf_shift_right_into(uint64_t *dst, size_t dst_count,
-                              const uint64_t *src, size_t src_count,
-                              int shift);
+                              const uint64_t *src, size_t src_count, int shift);
 
 /* ------------------------------------------------------------
    Сырая арифметика.

@@ -23,8 +23,7 @@
 
 typedef int (*binary_fn_t)(s21_mpf_t *, const s21_mpf_t *, const s21_mpf_t *);
 typedef int (*unary_fn_t)(s21_mpf_t *, const s21_mpf_t *);
-typedef int (*unary_pi_fn_t)(s21_mpf_t *, const s21_mpf_t *,
-                             const s21_mpf_t *);
+typedef int (*unary_pi_fn_t)(s21_mpf_t *, const s21_mpf_t *, const s21_mpf_t *);
 
 #define TRIALS 3
 
@@ -143,14 +142,14 @@ typedef struct {
 } bench_config_t;
 
 static const bench_config_t configs[] = {
-    {  64, 200000, 100000, 50000,  5000, 1000},
-    { 256,  50000,  20000,  5000,  1000,  300},
-    {1024,   5000,   2000,   500,   200,   30},
-    {4096,   2000,    500,    50,    30,    5},
+    {64, 200000, 100000, 50000, 5000, 1000},
+    {256, 50000, 20000, 5000, 1000, 300},
+    {1024, 5000, 2000, 500, 200, 30},
+    {4096, 2000, 500, 50, 30, 5},
     /* Два дополнительных масштаба — посмотреть поведение mul
        выше порога Карацубы и оценить crossover до Toom-Cook. */
-    {8192,   1000,    200,    20,    10,    2},
-    {16384,   500,     60,     6,     3,    1},
+    {8192, 1000, 200, 20, 10, 2},
+    {16384, 500, 60, 6, 3, 1},
 };
 
 /* Обёртка для s21_mpf_pi — публичная функция принимает только
@@ -171,22 +170,22 @@ int main(void) {
   for (size_t i = 0; i < nc; i++) {
     const bench_config_t *c = &configs[i];
     printf("  --- prec = %u ---\n", c->prec);
-    bench_binary("add",  s21_mpf_add,  c->prec, c->addsub);
-    bench_binary("sub",  s21_mpf_sub,  c->prec, c->addsub);
-    bench_binary("mul",  s21_mpf_mul,  c->prec, c->mul);
-    bench_binary("div",  s21_mpf_div,  c->prec, c->div);
-    bench_unary ("sqrt", s21_mpf_sqrt, c->prec, c->sqrt);
-    bench_unary ("exp",  s21_mpf_exp,  c->prec, c->transc);
-    bench_unary ("log",  s21_mpf_log,  c->prec, c->transc);
+    bench_binary("add", s21_mpf_add, c->prec, c->addsub);
+    bench_binary("sub", s21_mpf_sub, c->prec, c->addsub);
+    bench_binary("mul", s21_mpf_mul, c->prec, c->mul);
+    bench_binary("div", s21_mpf_div, c->prec, c->div);
+    bench_unary("sqrt", s21_mpf_sqrt, c->prec, c->sqrt);
+    bench_unary("exp", s21_mpf_exp, c->prec, c->transc);
+    bench_unary("log", s21_mpf_log, c->prec, c->transc);
     printf("\n");
-    bench_unary ("pi",   bench_pi_wrapper, c->prec, c->transc);
+    bench_unary("pi", bench_pi_wrapper, c->prec, c->transc);
     bench_unary_with_pi("sin", s21_mpf_sin_with_pi, c->prec, c->transc);
     bench_unary_with_pi("cos", s21_mpf_cos_with_pi, c->prec, c->transc);
     bench_unary_with_pi("tan", s21_mpf_tan_with_pi, c->prec, c->transc);
     printf("\n");
-    bench_unary ("sin", s21_mpf_sin, c->prec, c->transc);
-    bench_unary ("cos", s21_mpf_cos, c->prec, c->transc);
-    bench_unary ("tan", s21_mpf_tan, c->prec, c->transc);
+    bench_unary("sin", s21_mpf_sin, c->prec, c->transc);
+    bench_unary("cos", s21_mpf_cos, c->prec, c->transc);
+    bench_unary("tan", s21_mpf_tan, c->prec, c->transc);
     printf("\n");
   }
 

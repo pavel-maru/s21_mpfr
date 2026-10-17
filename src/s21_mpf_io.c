@@ -67,8 +67,7 @@ static int parse_special(const char *s, int sign, s21_mpf_t *x) {
 }
 
 /* res = base^k для k >= 0.  res->prec должен быть >= wp. */
-static int pow_base_mpf(s21_mpf_t *res, unsigned base, int64_t k,
-                        uint32_t wp) {
+static int pow_base_mpf(s21_mpf_t *res, unsigned base, int64_t k, uint32_t wp) {
   s21_mpf_set_ui(res, 1);
   if (k == 0) return 0;
 
@@ -289,9 +288,8 @@ static int get_str_special(char *buf, size_t bufsize, int *exp_out,
 /* Извлечение n_digits цифр по основанию base из y ∈ [1, base)
    в buf[digits_start..).  y изменяется: на выходе это остаток
    y ∈ [0, base) после последнего умножения на base. */
-static void get_str_extract(char *buf, size_t digits_start,
-                            uint32_t n_digits, s21_mpf_t *y,
-                            unsigned base, uint32_t wp) {
+static void get_str_extract(char *buf, size_t digits_start, uint32_t n_digits,
+                            s21_mpf_t *y, unsigned base, uint32_t wp) {
   s21_mpf_t base_val;
   s21_mpf_stack_t tmp_s;
   s21_mpf_init2(&base_val, wp);
@@ -322,9 +320,8 @@ static void get_str_extract(char *buf, size_t digits_start,
 /* Решение об округлении вверх.  rem = y после извлечения цифр,
    лежит в [0, base).  last_digit_val — значение последней
    записанной цифры (для ties-to-even). */
-static int get_str_should_round_up(const s21_mpf_t *rem,
-                                   int last_digit_val, int sign,
-                                   s21_mpf_rnd_t rnd, unsigned base,
+static int get_str_should_round_up(const s21_mpf_t *rem, int last_digit_val,
+                                   int sign, s21_mpf_rnd_t rnd, unsigned base,
                                    uint32_t wp) {
   s21_mpf_t half;
   s21_mpf_init2(&half, wp);
@@ -371,9 +368,8 @@ static void get_str_round_up(char *buf, uint32_t n_digits, unsigned base,
   (*E)++;
 }
 
-int s21_mpf_get_str(char *buf, size_t bufsize, int *exp_out,
-                    int base, uint32_t n_digits,
-                    const s21_mpf_t *x, s21_mpf_rnd_t rnd) {
+int s21_mpf_get_str(char *buf, size_t bufsize, int *exp_out, int base,
+                    uint32_t n_digits, const s21_mpf_t *x, s21_mpf_rnd_t rnd) {
   if (buf == NULL || x == NULL || exp_out == NULL) return -1;
   if (base < 2 || base > 36) return -1;
   if (n_digits == 0) n_digits = 20;
@@ -428,8 +424,8 @@ int s21_mpf_get_str(char *buf, size_t bufsize, int *exp_out,
   get_str_extract(buf, digits_start, n_digits, &y, (unsigned)base, wp);
 
   int last_digit_val = digit_value(buf[digits_start + n_digits - 1]);
-  if (get_str_should_round_up(&y, last_digit_val, x->sign, rnd,
-                              (unsigned)base, wp)) {
+  if (get_str_should_round_up(&y, last_digit_val, x->sign, rnd, (unsigned)base,
+                              wp)) {
     get_str_round_up(buf + digits_start, n_digits, (unsigned)base, &E);
   }
 

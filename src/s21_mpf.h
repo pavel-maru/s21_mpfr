@@ -356,9 +356,8 @@ int s21_mpf_set_str(s21_mpf_t *x, const char *str, int base);
    n_digits == 0 → значение по умолчанию (20).
 
    0 при успехе, -1 при ошибке (NULL, base вне [2, 36], буфер мал). */
-int s21_mpf_get_str(char *buf, size_t bufsize, int *exp_out,
-                    int base, uint32_t n_digits,
-                    const s21_mpf_t *x, s21_mpf_rnd_t rnd);
+int s21_mpf_get_str(char *buf, size_t bufsize, int *exp_out, int base,
+                    uint32_t n_digits, const s21_mpf_t *x, s21_mpf_rnd_t rnd);
 
 /* ============== Печать ============== */
 

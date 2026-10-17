@@ -33,7 +33,7 @@
 #include <unistd.h>
 
 #include "s21_mpf.h"
-#include "s21_mpf_internal.h"   /* S21_MPF_MAX_ARG_BITS */
+#include "s21_mpf_internal.h" /* S21_MPF_MAX_ARG_BITS */
 
 #define S21_LOG2_10 3.3219280948873626
 #define S21_LOG10_2 0.30102999566398120
@@ -138,8 +138,8 @@ static int wrap_neg(s21_mpf_t *res, const s21_mpf_t *x) {
 
 typedef int (*s21_unary_fn)(s21_mpf_t *, const s21_mpf_t *);
 typedef int (*s21_binary_fn)(s21_mpf_t *, const s21_mpf_t *, const s21_mpf_t *);
-typedef int (*s21_ternary_fn)(s21_mpf_t *, const s21_mpf_t *,
-                              const s21_mpf_t *, const s21_mpf_t *);
+typedef int (*s21_ternary_fn)(s21_mpf_t *, const s21_mpf_t *, const s21_mpf_t *,
+                              const s21_mpf_t *);
 
 typedef struct {
   const char *name;
@@ -158,53 +158,49 @@ typedef struct {
 
 static const unary_entry_t unary_table[] = {
     /* Элементарные */
-    { "sqrt",   s21_mpf_sqrt   },
-    { "cbrt",   s21_mpf_cbrt   },
-    { "exp",    s21_mpf_exp    },
-    { "expm1",  s21_mpf_expm1  },
-    { "log",    s21_mpf_log    },
-    { "log1p",  s21_mpf_log1p  },
-    { "log2",   s21_mpf_log2   },
-    { "log10",  s21_mpf_log10  },
+    {"sqrt", s21_mpf_sqrt},
+    {"cbrt", s21_mpf_cbrt},
+    {"exp", s21_mpf_exp},
+    {"expm1", s21_mpf_expm1},
+    {"log", s21_mpf_log},
+    {"log1p", s21_mpf_log1p},
+    {"log2", s21_mpf_log2},
+    {"log10", s21_mpf_log10},
     /* Тригонометрия */
-    { "sin",    wrap_sin       },
-    { "cos",    wrap_cos       },
-    { "tan",    wrap_tan       },
-    { "atan",   wrap_atan      },
-    { "asin",   wrap_asin      },
-    { "acos",   wrap_acos      },
+    {"sin", wrap_sin},
+    {"cos", wrap_cos},
+    {"tan", wrap_tan},
+    {"atan", wrap_atan},
+    {"asin", wrap_asin},
+    {"acos", wrap_acos},
     /* Гиперболические */
-    { "sinh",   s21_mpf_sinh   },
-    { "cosh",   s21_mpf_cosh   },
-    { "tanh",   s21_mpf_tanh   },
-    { "asinh",  s21_mpf_asinh  },
-    { "acosh",  s21_mpf_acosh  },
-    { "atanh",  s21_mpf_atanh  },
+    {"sinh", s21_mpf_sinh},
+    {"cosh", s21_mpf_cosh},
+    {"tanh", s21_mpf_tanh},
+    {"asinh", s21_mpf_asinh},
+    {"acosh", s21_mpf_acosh},
+    {"atanh", s21_mpf_atanh},
     /* Округление */
-    { "trunc",  s21_mpf_trunc  },
-    { "floor",  s21_mpf_floor  },
-    { "ceil",   s21_mpf_ceil   },
-    { "round",  s21_mpf_round  },
+    {"trunc", s21_mpf_trunc},
+    {"floor", s21_mpf_floor},
+    {"ceil", s21_mpf_ceil},
+    {"round", s21_mpf_round},
     /* Прочее */
-    { "abs",    wrap_abs       },
-    { "neg",    wrap_neg       },
+    {"abs", wrap_abs},
+    {"neg", wrap_neg},
 };
 static const size_t unary_count = sizeof(unary_table) / sizeof(unary_table[0]);
 
 static const binary_entry_t binary_table[] = {
-    { "add",   s21_mpf_add   },
-    { "sub",   s21_mpf_sub   },
-    { "mul",   s21_mpf_mul   },
-    { "div",   s21_mpf_div   },
-    { "pow",   s21_mpf_pow   },
-    { "fmod",  s21_mpf_fmod  },
-    { "hypot", s21_mpf_hypot },
+    {"add", s21_mpf_add},     {"sub", s21_mpf_sub}, {"mul", s21_mpf_mul},
+    {"div", s21_mpf_div},     {"pow", s21_mpf_pow}, {"fmod", s21_mpf_fmod},
+    {"hypot", s21_mpf_hypot},
 };
 static const size_t binary_count =
     sizeof(binary_table) / sizeof(binary_table[0]);
 
 static const ternary_entry_t ternary_table[] = {
-    { "fma", s21_mpf_fma },
+    {"fma", s21_mpf_fma},
 };
 static const size_t ternary_count =
     sizeof(ternary_table) / sizeof(ternary_table[0]);
@@ -332,8 +328,8 @@ static void print_in_base(const s21_mpf_t *x, int base, uint32_t n_digits) {
 
   char buf[1024];
   int e = 0;
-  int rc = s21_mpf_get_str(buf, sizeof(buf), &e, base, n_digits, x,
-                           S21_MPF_RNDN);
+  int rc =
+      s21_mpf_get_str(buf, sizeof(buf), &e, base, n_digits, x, S21_MPF_RNDN);
   if (rc != 0) {
     printf("(get_str error)\n");
     return;
@@ -364,11 +360,19 @@ static void print_in_base(const s21_mpf_t *x, int base, uint32_t n_digits) {
 
 static void print_value(const s21_mpf_t *x) {
   switch (g_output_base) {
-    case 10: print_dec(x, g_dec_digits);                break;
-    case 16: s21_mpf_print(x);                          break;
+    case 10:
+      print_dec(x, g_dec_digits);
+      break;
+    case 16:
+      s21_mpf_print(x);
+      break;
     case 8:
-    case 2:  print_in_base(x, g_output_base, g_dec_digits); break;
-    default: print_dec(x, g_dec_digits);                break;
+    case 2:
+      print_in_base(x, g_output_base, g_dec_digits);
+      break;
+    default:
+      print_dec(x, g_dec_digits);
+      break;
   }
 }
 
@@ -486,13 +490,13 @@ static void cmd_help(void) {
     printf("%s%s", binary_table[i].name, i + 1 < binary_count ? " " : "\n");
   printf("Тернарные:");
   for (size_t i = 0; i < ternary_count; i++)
-    printf(" %s%s", ternary_table[i].name,
-           i + 1 < ternary_count ? " " : "\n");
+    printf(" %s%s", ternary_table[i].name, i + 1 < ternary_count ? " " : "\n");
   printf("Константы: pi [prec], ln2 [prec], e [prec]\n");
   printf("Прочее:    setprec <n>[d], prec, show <num>, dec [n],\n");
   printf("           hex [num], oct [num], bin [num],\n");
   printf("           quit/exit/q, help/?\n");
-  printf("Формат:    <func> [arg1] [arg2] [prec]              -- unary/binary\n");
+  printf(
+      "Формат:    <func> [arg1] [arg2] [prec]              -- unary/binary\n");
   printf("           <func> [arg1] [arg2] [arg3] [prec]       -- ternary\n");
   printf("           <number>          == show <number>\n");
   printf("Точность:  число бит (например 256), либо <n>d — десятичных\n");
@@ -612,14 +616,16 @@ static void cmd_unary(const char *name, const char *arg_tok,
     return;
   }
   int rc = fn(&r, &x);
-  if (rc == 0) print_value(&r);
-  else fprintf(stderr, "%s: ошибка\n", name);
+  if (rc == 0)
+    print_value(&r);
+  else
+    fprintf(stderr, "%s: ошибка\n", name);
   s21_mpf_clear(&x);
   s21_mpf_clear(&r);
 }
 
-static void cmd_binary(const char *name, const char *a_tok,
-                       const char *b_tok, const char *prec_tok) {
+static void cmd_binary(const char *name, const char *a_tok, const char *b_tok,
+                       const char *prec_tok) {
   s21_binary_fn fn = find_binary(name);
   if (fn == NULL) {
     fprintf(stderr, "неизвестная бинарная функция '%s'\n", name);
@@ -671,8 +677,10 @@ static void cmd_binary(const char *name, const char *a_tok,
 
   {
     int rc = fn(&r, &x, &y);
-    if (rc == 0) print_value(&r);
-    else fprintf(stderr, "%s: ошибка\n", name);
+    if (rc == 0)
+      print_value(&r);
+    else
+      fprintf(stderr, "%s: ошибка\n", name);
   }
 
 cleanup:
@@ -681,9 +689,8 @@ cleanup:
   s21_mpf_clear(&r);
 }
 
-static void cmd_ternary(const char *name, const char *a_tok,
-                        const char *b_tok, const char *c_tok,
-                        const char *prec_tok) {
+static void cmd_ternary(const char *name, const char *a_tok, const char *b_tok,
+                        const char *c_tok, const char *prec_tok) {
   s21_ternary_fn fn = find_ternary(name);
   if (fn == NULL) {
     fprintf(stderr, "неизвестная тернарная функция '%s'\n", name);
@@ -747,8 +754,10 @@ static void cmd_ternary(const char *name, const char *a_tok,
 
   {
     int rc = fn(&r, &x, &y, &z);
-    if (rc == 0) print_value(&r);
-    else fprintf(stderr, "%s: ошибка\n", name);
+    if (rc == 0)
+      print_value(&r);
+    else
+      fprintf(stderr, "%s: ошибка\n", name);
   }
 
 cleanup:
@@ -761,7 +770,7 @@ cleanup:
 static bool process_line(char *line) {
   /* Максимум 5 токенов: команда + 4 аргумента (для тернарных
      операций: arg1 arg2 arg3 prec). */
-  const char *tok[5] = { NULL, NULL, NULL, NULL, NULL };
+  const char *tok[5] = {NULL, NULL, NULL, NULL, NULL};
   size_t n = 0;
   for (char *p = strtok(line, " \t"); p != NULL && n < 5;
        p = strtok(NULL, " \t")) {
@@ -797,22 +806,28 @@ static bool process_line(char *line) {
 
   if (strcmp(cmd, "hex") == 0) {
     g_output_base = 16;
-    if (n >= 2) cmd_show(tok[1]);
-    else printf("вывод: hex (полная мантисса)\n");
+    if (n >= 2)
+      cmd_show(tok[1]);
+    else
+      printf("вывод: hex (полная мантисса)\n");
     return true;
   }
 
   if (strcmp(cmd, "oct") == 0) {
     g_output_base = 8;
-    if (n >= 2) cmd_show(tok[1]);
-    else printf("вывод: oct (base 8, <sign>.<digits>p<exp>)\n");
+    if (n >= 2)
+      cmd_show(tok[1]);
+    else
+      printf("вывод: oct (base 8, <sign>.<digits>p<exp>)\n");
     return true;
   }
 
   if (strcmp(cmd, "bin") == 0) {
     g_output_base = 2;
-    if (n >= 2) cmd_show(tok[1]);
-    else printf("вывод: bin (base 2, <sign>.<digits>p<exp>)\n");
+    if (n >= 2)
+      cmd_show(tok[1]);
+    else
+      printf("вывод: bin (base 2, <sign>.<digits>p<exp>)\n");
     return true;
   }
 

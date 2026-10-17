@@ -112,8 +112,7 @@ static void test_set_d_subnormal(void) {
   ASSERT(s21_mpf_cmp(&x53, &x256) == 0, "1e-310 same at prec 53 and 256");
 
   /* Порядок 2^-1030 — точно subnormal-диапазон. */
-  ASSERT(x256.exp < -1000 && x256.exp > -1100,
-         "1e-310 exp in subnormal range");
+  ASSERT(x256.exp < -1000 && x256.exp > -1100, "1e-310 exp in subnormal range");
 
   s21_mpf_clear(&x53);
   s21_mpf_clear(&x256);
@@ -607,8 +606,8 @@ static void test_mul_large_prec(void) {
      (2^k - 1)^2 и (2^k - 1)(2^k + 1).  При prec >= ~2048 внутри
      mul_mant работает Карацуба; при меньших — schoolbook.
      Обе формулы дают точный результат, влезающий в prec. */
-  const uint32_t precs[] = {512, 1024, 1984, 2048, 2112, 3072,
-                            4096, 6144, 8192};
+  const uint32_t precs[] = {512,  1024, 1984, 2048, 2112,
+                            3072, 4096, 6144, 8192};
   const size_t np = sizeof(precs) / sizeof(precs[0]);
 
   for (size_t pi = 0; pi < np; pi++) {
@@ -693,8 +692,7 @@ static void test_mul_large_prec(void) {
 static void test_mul_karatsuba_vs_schoolbook(void) {
   /* n — число лимбов, чуть выше и вокруг порога 32.  Значения
      wp = n·64 соответствуют prec ≈ wp - 64. */
-  const uint32_t ns[] = {16, 31, 32, 33, 47, 48, 63, 64, 65,
-                         100, 129, 200};
+  const uint32_t ns[] = {16, 31, 32, 33, 47, 48, 63, 64, 65, 100, 129, 200};
   const size_t nn = sizeof(ns) / sizeof(ns[0]);
 
   for (size_t i = 0; i < nn; i++) {
@@ -2456,8 +2454,7 @@ static void test_hypot(void) {
   s21_mpf_set_inf(&x, 0);
   s21_mpf_set_nan(&y);
   s21_mpf_hypot(&r, &x, &y);
-  ASSERT(s21_mpf_is_inf(&r) && r.sign == 0,
-         "hypot(+inf, NaN) = +inf (C99)");
+  ASSERT(s21_mpf_is_inf(&r) && r.sign == 0, "hypot(+inf, NaN) = +inf (C99)");
 
   s21_mpf_set_nan(&x);
   s21_mpf_set_ui(&y, 5);
@@ -2488,8 +2485,7 @@ static void test_hypot(void) {
     s21_mpf_abs(&diff, &diff);
     s21_mpf_div(&diff, &diff, &e);
     s21_mpf_set_d(&thr, 1e-70);
-    ASSERT(s21_mpf_cmp(&diff, &thr) < 0,
-           "hypot(2^199, 2^199) = 2^199·√2");
+    ASSERT(s21_mpf_cmp(&diff, &thr) < 0, "hypot(2^199, 2^199) = 2^199·√2");
     s21_mpf_clear(&xb);
     s21_mpf_clear(&yb);
   }
@@ -2742,7 +2738,7 @@ static void test_tan_asin_acos(void) {
    RNDN до 256).  Оба должны дать один и тот же 256-битный
    результат. */
 static void test_trig_large_args(void) {
-  const char *args[] = {"1",   "10",    "1000",  "1e10",  "1e30",
+  const char *args[] = {"1",    "10",    "1000",  "1e10",  "1e30",
                         "1e50", "1e100", "1e500", "1e2000"};
   const size_t n = sizeof(args) / sizeof(args[0]);
 
@@ -2755,9 +2751,9 @@ static void test_trig_large_args(void) {
 
     ASSERT(s21_mpf_set_str(&x, args[i], 10) == 0, "set_str");
 
-    s21_mpf_sin(&r_lo, &x);    /* res->prec = 256 */
-    s21_mpf_sin(&r_hi, &x);    /* res->prec = 2048 */
-    s21_mpf_set(&ref, &r_hi);  /* 2048 → 256, RNDN */
+    s21_mpf_sin(&r_lo, &x);   /* res->prec = 256 */
+    s21_mpf_sin(&r_hi, &x);   /* res->prec = 2048 */
+    s21_mpf_set(&ref, &r_hi); /* 2048 → 256, RNDN */
     ASSERT(s21_mpf_cmp(&r_lo, &ref) == 0, "sin large arg");
 
     s21_mpf_cos(&r_lo, &x);
@@ -3270,8 +3266,7 @@ static void test_set_prec_round(void) {
 
   /* Расширение — точно при любом rnd. */
   s21_mpf_set(&widened, &lo62);
-  ASSERT(s21_mpf_set_prec_round(&widened, 256, S21_MPF_RNDU) == 0,
-         "widen rc");
+  ASSERT(s21_mpf_set_prec_round(&widened, 256, S21_MPF_RNDU) == 0, "widen rc");
   ASSERT(widened.prec == 256, "widen prec");
   ASSERT(s21_mpf_cmp(&widened, &lo62) == 0, "widening is exact (any rnd)");
 
@@ -3359,13 +3354,11 @@ static void test_set_str(void) {
 
   /* Сравнение с π */
   s21_mpf_pi(&pi);
-  ASSERT(s21_mpf_set_str(&x, "3.141592653589793", 10) == 0,
-         "set_str: pi rc");
+  ASSERT(s21_mpf_set_str(&x, "3.141592653589793", 10) == 0, "set_str: pi rc");
   s21_mpf_sub(&diff, &x, &pi);
   s21_mpf_abs(&diff, &diff);
   s21_mpf_set_d(&threshold, 1e-15);
-  ASSERT(s21_mpf_cmp(&diff, &threshold) < 0,
-         "set_str: pi ≈ 3.141592653589793");
+  ASSERT(s21_mpf_cmp(&diff, &threshold) < 0, "set_str: pi ≈ 3.141592653589793");
 
   /* Ноль */
   ASSERT(s21_mpf_set_str(&x, "0", 10) == 0, "set_str: 0 rc");
@@ -3400,9 +3393,10 @@ static void test_set_str(void) {
      Порог 1e-45 с запасом: 100 цифр даёт ~1e-100 точности, но
      100-я цифра π уже требует округления при parcing. */
   ASSERT(s21_mpf_set_str(&x,
-      "3.14159265358979323846264338327950288419716939937510"
-      "58209749445923078164062862089986280348253421170679", 10) == 0,
-      "set_str: pi-100 rc");
+                         "3.14159265358979323846264338327950288419716939937510"
+                         "58209749445923078164062862089986280348253421170679",
+                         10) == 0,
+         "set_str: pi-100 rc");
   s21_mpf_sub(&diff, &x, &pi);
   s21_mpf_abs(&diff, &diff);
   s21_mpf_set_d(&threshold, 1e-45);
@@ -3669,8 +3663,7 @@ static void test_base_conversion(void) {
   ASSERT(s21_mpf_cmp(&x, &e) == 0, "'ff' base 16 = 255");
 
   ASSERT(s21_mpf_set_str(&x, "FF", 16) == 0, "set_str: 'FF' base 16");
-  ASSERT(s21_mpf_cmp(&x, &e) == 0,
-         "'FF' base 16 = 255 (регистронезависимо)");
+  ASSERT(s21_mpf_cmp(&x, &e) == 0, "'FF' base 16 = 255 (регистронезависимо)");
 
   ASSERT(s21_mpf_set_str(&x, "1.8", 16) == 0, "set_str: '1.8' base 16");
   s21_mpf_set_d(&e, 1.5);
@@ -3735,57 +3728,65 @@ static void test_base_conversion(void) {
   /* ---------- get_str: base 2 ---------- */
 
   s21_mpf_set_ui(&x, 5);
-  ASSERT(s21_mpf_get_str(buf, sizeof(buf), &exp_out, 2, 5, &x,
-                         S21_MPF_RNDN) == 0, "get_str: 5 base 2");
+  ASSERT(
+      s21_mpf_get_str(buf, sizeof(buf), &exp_out, 2, 5, &x, S21_MPF_RNDN) == 0,
+      "get_str: 5 base 2");
   ASSERT(strcmp(buf, "10100") == 0, "get_str: 5 base 2 = '10100'");
   ASSERT(exp_out == 3, "get_str: 5 base 2 exp = 3");
 
   s21_mpf_set_d(&x, 0.5);
-  ASSERT(s21_mpf_get_str(buf, sizeof(buf), &exp_out, 2, 3, &x,
-                         S21_MPF_RNDN) == 0, "get_str: 0.5 base 2");
+  ASSERT(
+      s21_mpf_get_str(buf, sizeof(buf), &exp_out, 2, 3, &x, S21_MPF_RNDN) == 0,
+      "get_str: 0.5 base 2");
   ASSERT(strcmp(buf, "100") == 0, "get_str: 0.5 base 2 = '100'");
   ASSERT(exp_out == 0, "get_str: 0.5 base 2 exp = 0");
 
   /* ---------- get_str: base 8 ---------- */
 
   s21_mpf_set_ui(&x, 15);
-  ASSERT(s21_mpf_get_str(buf, sizeof(buf), &exp_out, 8, 3, &x,
-                         S21_MPF_RNDN) == 0, "get_str: 15 base 8");
+  ASSERT(
+      s21_mpf_get_str(buf, sizeof(buf), &exp_out, 8, 3, &x, S21_MPF_RNDN) == 0,
+      "get_str: 15 base 8");
   ASSERT(strcmp(buf, "170") == 0, "get_str: 15 base 8 = '170'");
   ASSERT(exp_out == 2, "get_str: 15 base 8 exp = 2");
 
   /* ---------- get_str: base 16 ---------- */
 
   s21_mpf_set_ui(&x, 255);
-  ASSERT(s21_mpf_get_str(buf, sizeof(buf), &exp_out, 16, 5, &x,
-                         S21_MPF_RNDN) == 0, "get_str: 255 base 16");
+  ASSERT(
+      s21_mpf_get_str(buf, sizeof(buf), &exp_out, 16, 5, &x, S21_MPF_RNDN) == 0,
+      "get_str: 255 base 16");
   ASSERT(strcmp(buf, "ff000") == 0, "get_str: 255 base 16 = 'ff000'");
   ASSERT(exp_out == 2, "get_str: 255 base 16 exp = 2");
 
   s21_mpf_set_ui(&x, 16);
-  ASSERT(s21_mpf_get_str(buf, sizeof(buf), &exp_out, 16, 3, &x,
-                         S21_MPF_RNDN) == 0, "get_str: 16 base 16");
+  ASSERT(
+      s21_mpf_get_str(buf, sizeof(buf), &exp_out, 16, 3, &x, S21_MPF_RNDN) == 0,
+      "get_str: 16 base 16");
   ASSERT(strcmp(buf, "100") == 0, "get_str: 16 base 16 = '100'");
   ASSERT(exp_out == 2, "get_str: 16 base 16 exp = 2");
 
   s21_mpf_set_si(&x, -255);
-  ASSERT(s21_mpf_get_str(buf, sizeof(buf), &exp_out, 16, 3, &x,
-                         S21_MPF_RNDN) == 0, "get_str: -255 base 16");
+  ASSERT(
+      s21_mpf_get_str(buf, sizeof(buf), &exp_out, 16, 3, &x, S21_MPF_RNDN) == 0,
+      "get_str: -255 base 16");
   ASSERT(strcmp(buf, "-ff0") == 0, "get_str: -255 base 16 = '-ff0'");
 
   /* ---------- get_str: base 36 ---------- */
 
   s21_mpf_set_ui(&x, 1295);
-  ASSERT(s21_mpf_get_str(buf, sizeof(buf), &exp_out, 36, 3, &x,
-                         S21_MPF_RNDN) == 0, "get_str: 1295 base 36");
+  ASSERT(
+      s21_mpf_get_str(buf, sizeof(buf), &exp_out, 36, 3, &x, S21_MPF_RNDN) == 0,
+      "get_str: 1295 base 36");
   ASSERT(strcmp(buf, "zz0") == 0, "get_str: 1295 base 36 = 'zz0'");
   ASSERT(exp_out == 2, "get_str: 1295 base 36 exp = 2");
 
   /* ---------- Round-trip: get_str → set_str ---------- */
 
   s21_mpf_set_ui(&x, 4095);
-  ASSERT(s21_mpf_get_str(buf, sizeof(buf), &exp_out, 16, 3, &x,
-                         S21_MPF_RNDN) == 0, "get_str: 4095 base 16");
+  ASSERT(
+      s21_mpf_get_str(buf, sizeof(buf), &exp_out, 16, 3, &x, S21_MPF_RNDN) == 0,
+      "get_str: 4095 base 16");
   ASSERT(strcmp(buf, "fff") == 0, "get_str: 4095 base 16 = 'fff'");
   ASSERT(s21_mpf_set_str(&y, buf, 16) == 0, "set_str: round-trip 4095");
   s21_mpf_set_ui(&check, 4095);
@@ -3793,8 +3794,9 @@ static void test_base_conversion(void) {
 
   /* Round-trip для base 8: 511 = "777". */
   s21_mpf_set_ui(&x, 511);
-  ASSERT(s21_mpf_get_str(buf, sizeof(buf), &exp_out, 8, 3, &x,
-                         S21_MPF_RNDN) == 0, "get_str: 511 base 8");
+  ASSERT(
+      s21_mpf_get_str(buf, sizeof(buf), &exp_out, 8, 3, &x, S21_MPF_RNDN) == 0,
+      "get_str: 511 base 8");
   ASSERT(strcmp(buf, "777") == 0, "get_str: 511 base 8 = '777'");
   ASSERT(s21_mpf_set_str(&y, buf, 8) == 0, "set_str: round-trip 511");
   s21_mpf_set_ui(&check, 511);
@@ -3803,27 +3805,32 @@ static void test_base_conversion(void) {
   /* ---------- get_str: спецзначения во всех базах ---------- */
 
   s21_mpf_set_nan(&x);
-  ASSERT(s21_mpf_get_str(buf, sizeof(buf), &exp_out, 16, 5, &x,
-                         S21_MPF_RNDN) == 0, "get_str: NaN base 16");
+  ASSERT(
+      s21_mpf_get_str(buf, sizeof(buf), &exp_out, 16, 5, &x, S21_MPF_RNDN) == 0,
+      "get_str: NaN base 16");
   ASSERT(strcmp(buf, "nan") == 0, "get_str: NaN base 16 = 'nan'");
 
   s21_mpf_set_inf(&x, 1);
-  ASSERT(s21_mpf_get_str(buf, sizeof(buf), &exp_out, 8, 5, &x,
-                         S21_MPF_RNDN) == 0, "get_str: -inf base 8");
+  ASSERT(
+      s21_mpf_get_str(buf, sizeof(buf), &exp_out, 8, 5, &x, S21_MPF_RNDN) == 0,
+      "get_str: -inf base 8");
   ASSERT(strcmp(buf, "-inf") == 0, "get_str: -inf base 8 = '-inf'");
 
   s21_mpf_set_zero(&x, 0);
-  ASSERT(s21_mpf_get_str(buf, sizeof(buf), &exp_out, 2, 5, &x,
-                         S21_MPF_RNDN) == 0, "get_str: 0 base 2");
+  ASSERT(
+      s21_mpf_get_str(buf, sizeof(buf), &exp_out, 2, 5, &x, S21_MPF_RNDN) == 0,
+      "get_str: 0 base 2");
   ASSERT(strcmp(buf, "0") == 0, "get_str: 0 base 2 = '0'");
 
   /* ---------- get_str: невалидные base ---------- */
 
   s21_mpf_set_ui(&x, 5);
-  ASSERT(s21_mpf_get_str(buf, sizeof(buf), &exp_out, 1, 5, &x,
-                         S21_MPF_RNDN) == -1, "get_str: base 1 → -1");
-  ASSERT(s21_mpf_get_str(buf, sizeof(buf), &exp_out, 37, 5, &x,
-                         S21_MPF_RNDN) == -1, "get_str: base 37 → -1");
+  ASSERT(
+      s21_mpf_get_str(buf, sizeof(buf), &exp_out, 1, 5, &x, S21_MPF_RNDN) == -1,
+      "get_str: base 1 → -1");
+  ASSERT(s21_mpf_get_str(buf, sizeof(buf), &exp_out, 37, 5, &x, S21_MPF_RNDN) ==
+             -1,
+         "get_str: base 37 → -1");
 
   s21_mpf_clear(&x);
   s21_mpf_clear(&y);
@@ -4390,10 +4397,10 @@ static void test_fma(void) {
     s21_mpf_normalize(&tiny);
 
     s21_mpf_set_ui(&x, 1);
-    s21_mpf_add(&x, &x, &tiny);   /* x = 1 + 2^-80 */
+    s21_mpf_add(&x, &x, &tiny); /* x = 1 + 2^-80 */
 
     s21_mpf_set_ui(&y, 1);
-    s21_mpf_sub(&y, &y, &tiny);   /* y = 1 - 2^-80 */
+    s21_mpf_sub(&y, &y, &tiny); /* y = 1 - 2^-80 */
 
     s21_mpf_set_si(&z, -1);
 
@@ -4405,8 +4412,7 @@ static void test_fma(void) {
     e.sign = 1;
     s21_mpf_normalize(&e);
 
-    ASSERT(s21_mpf_cmp(&r, &e) == 0,
-           "fma(1+2^-80, 1-2^-80, -1) = -2^-160");
+    ASSERT(s21_mpf_cmp(&r, &e) == 0, "fma(1+2^-80, 1-2^-80, -1) = -2^-160");
 
     /* Наивный mul + add даёт другое — доказывает fused-эффект. */
     s21_mpf_mul(&t, &x, &y);
@@ -4568,14 +4574,12 @@ static void test_hexfloat(void) {
   ASSERT(s21_mpf_cmp(&x, &e) == 0, "'ffp4' = 4080");
 
   /* Знак */
-  ASSERT(s21_mpf_set_str(&x, "-0x1.8p4", 16) == 0,
-         "hexfloat: '-0x1.8p4' rc");
+  ASSERT(s21_mpf_set_str(&x, "-0x1.8p4", 16) == 0, "hexfloat: '-0x1.8p4' rc");
   s21_mpf_set_si(&e, -24);
   ASSERT(s21_mpf_cmp(&x, &e) == 0, "'-0x1.8p4' = -24");
 
   /* Большая экспонента: 2^100 */
-  ASSERT(s21_mpf_set_str(&x, "0x1p100", 16) == 0,
-         "hexfloat: '0x1p100' rc");
+  ASSERT(s21_mpf_set_str(&x, "0x1p100", 16) == 0, "hexfloat: '0x1p100' rc");
   s21_mpf_set_ui(&e, 1);
   e.exp += 100;
   s21_mpf_normalize(&e);
@@ -4597,8 +4601,7 @@ static void test_hexfloat(void) {
   ASSERT(s21_mpf_is_zero(&x) && x.sign == 1, "'-0x0p-4' = -0");
 
   /* Без p -- обычный hex, как раньше */
-  ASSERT(s21_mpf_set_str(&x, "0x1.8", 16) == 0,
-         "hexfloat: '0x1.8' (no p) rc");
+  ASSERT(s21_mpf_set_str(&x, "0x1.8", 16) == 0, "hexfloat: '0x1.8' (no p) rc");
   s21_mpf_set_d(&e, 1.5);
   ASSERT(s21_mpf_cmp(&x, &e) == 0, "'0x1.8' (no p) = 1.5");
 
@@ -4613,12 +4616,10 @@ static void test_hexfloat(void) {
   ASSERT(s21_mpf_set_str(&x, "0xg", 16) == -1, "hexfloat: '0xg' → -1");
 
   /* p в base != 16 -- не разделитель экспоненты. */
-  ASSERT(s21_mpf_set_str(&x, "1p4", 10) == -1,
-         "set_str: '1p4' base 10 → -1");
+  ASSERT(s21_mpf_set_str(&x, "1p4", 10) == -1, "set_str: '1p4' base 10 → -1");
 
   /* 0x в base != 16 -- не префикс. */
-  ASSERT(s21_mpf_set_str(&x, "0x1", 10) == -1,
-         "set_str: '0x1' base 10 → -1");
+  ASSERT(s21_mpf_set_str(&x, "0x1", 10) == -1, "set_str: '0x1' base 10 → -1");
 
   printf("[ok] hexfloat\n");
 }
@@ -4670,62 +4671,62 @@ typedef struct {
 
 int main(void) {
   const test_entry_t tests[] = {
-      {"init/clear",                       test_init_clear},
-      {"set_ui",                           test_set_ui},
-      {"set_si",                           test_set_si},
-      {"set_d",                            test_set_d},
-      {"set_d subnormal",                  test_set_d_subnormal},
-      {"special values",                   test_special},
-      {"precisions 2..512",                test_precision},
-      {"малые precisions",                 test_small_prec},
-      {"round narrow across limb",         test_round_narrow_across_limb_boundary},
-      {"cmp / cmp_abs / equal / integer",  test_cmp},
-      {"cmp mixed prec",                   test_cmp_mixed_prec},
-      {"add / sub / neg / abs",            test_add_sub},
-      {"mul",                              test_mul},
-      {"prec not multiple of 32",          test_nonmult32_prec},
-      {"mul at many precisions",           test_mul_many_prec},
-      {"mul large prec (Karatsuba)",       test_mul_large_prec},
-      {"mul Karatsuba vs schoolbook",      test_mul_karatsuba_vs_schoolbook},
-      {"div",                              test_div},
-      {"div at many precisions",           test_div_many_prec},
-      {"div powers of two",                test_div_powers_of_two},
-      {"null checks",                      test_null_checks},
-      {"bit utilities",                    test_bit_utils},
-      {"sqrt",                             test_sqrt},
-      {"sqrt edge cases",                  test_sqrt_edge_cases},
-      {"exp",                              test_exp},
-      {"log",                              test_log},
-      {"exp/log extremes",                 test_exp_log_extremes},
-      {"pi",                               test_pi},
-      {"pi: AGM vs Machin",                test_pi_machin_vs_agm},
-      {"constants ln2 / e",                test_const_ln2_e},
-      {"pow",                              test_pow},
-      {"hyperbolic",                       test_hyperbolic},
-      {"log2 / log10",                     test_log2_log10},
-      {"pow_ui / pow_si",                  test_pow_ui_si},
-      {"pow_ui windowed",                  test_pow_ui_window},
-      {"root",                             test_root},
-      {"hypot",                            test_hypot},
-      {"sin / cos",                        test_sin_cos},
-      {"atan",                             test_atan},
-      {"tan / asin / acos",                test_tan_asin_acos},
-      {"trig large args",                  test_trig_large_args},
-      {"with_pi API",                      test_with_pi_api},
-      {"set_round",                        test_set_round},
-      {"set_round non-mult-64",            test_set_round_nonmult64},
-      {"set_prec",                         test_set_prec},
-      {"set_prec_round",                   test_set_prec_round},
-      {"set_str",                          test_set_str},
-      {"get_str",                          test_get_str},
-      {"base conversion (2/8/16/36)",      test_base_conversion},
-      {"trunc / floor / ceil / round",     test_rounding_utils},
-      {"fmod",                             test_fmod},
-      {"log1p / expm1",                    test_log1p_expm1},
-      {"cbrt",                             test_cbrt},
-      {"fma",                              test_fma},
-      {"hexfloat",                         test_hexfloat},
-      {"ulp diagnostics",                  test_ulp_diagnostics},
+      {"init/clear", test_init_clear},
+      {"set_ui", test_set_ui},
+      {"set_si", test_set_si},
+      {"set_d", test_set_d},
+      {"set_d subnormal", test_set_d_subnormal},
+      {"special values", test_special},
+      {"precisions 2..512", test_precision},
+      {"малые precisions", test_small_prec},
+      {"round narrow across limb", test_round_narrow_across_limb_boundary},
+      {"cmp / cmp_abs / equal / integer", test_cmp},
+      {"cmp mixed prec", test_cmp_mixed_prec},
+      {"add / sub / neg / abs", test_add_sub},
+      {"mul", test_mul},
+      {"prec not multiple of 32", test_nonmult32_prec},
+      {"mul at many precisions", test_mul_many_prec},
+      {"mul large prec (Karatsuba)", test_mul_large_prec},
+      {"mul Karatsuba vs schoolbook", test_mul_karatsuba_vs_schoolbook},
+      {"div", test_div},
+      {"div at many precisions", test_div_many_prec},
+      {"div powers of two", test_div_powers_of_two},
+      {"null checks", test_null_checks},
+      {"bit utilities", test_bit_utils},
+      {"sqrt", test_sqrt},
+      {"sqrt edge cases", test_sqrt_edge_cases},
+      {"exp", test_exp},
+      {"log", test_log},
+      {"exp/log extremes", test_exp_log_extremes},
+      {"pi", test_pi},
+      {"pi: AGM vs Machin", test_pi_machin_vs_agm},
+      {"constants ln2 / e", test_const_ln2_e},
+      {"pow", test_pow},
+      {"hyperbolic", test_hyperbolic},
+      {"log2 / log10", test_log2_log10},
+      {"pow_ui / pow_si", test_pow_ui_si},
+      {"pow_ui windowed", test_pow_ui_window},
+      {"root", test_root},
+      {"hypot", test_hypot},
+      {"sin / cos", test_sin_cos},
+      {"atan", test_atan},
+      {"tan / asin / acos", test_tan_asin_acos},
+      {"trig large args", test_trig_large_args},
+      {"with_pi API", test_with_pi_api},
+      {"set_round", test_set_round},
+      {"set_round non-mult-64", test_set_round_nonmult64},
+      {"set_prec", test_set_prec},
+      {"set_prec_round", test_set_prec_round},
+      {"set_str", test_set_str},
+      {"get_str", test_get_str},
+      {"base conversion (2/8/16/36)", test_base_conversion},
+      {"trunc / floor / ceil / round", test_rounding_utils},
+      {"fmod", test_fmod},
+      {"log1p / expm1", test_log1p_expm1},
+      {"cbrt", test_cbrt},
+      {"fma", test_fma},
+      {"hexfloat", test_hexfloat},
+      {"ulp diagnostics", test_ulp_diagnostics},
   };
   const size_t n = sizeof(tests) / sizeof(tests[0]);
 

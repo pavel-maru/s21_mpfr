@@ -355,10 +355,9 @@ int s21_mpf_set_prec(s21_mpf_t *x, uint32_t new_prec) {
   return set_prec_impl(x, new_prec, S21_MPF_RNDN);
 }
 
-int s21_mpf_set_prec_round(s21_mpf_t *x, uint32_t new_prec,
-                           s21_mpf_rnd_t rnd) {
+int s21_mpf_set_prec_round(s21_mpf_t *x, uint32_t new_prec, s21_mpf_rnd_t rnd) {
   return set_prec_impl(x, new_prec, rnd);
-} 
+}
 
 /* ============================================================
    Временные mpf на стеке

@@ -11,8 +11,7 @@
 /* Вспомогательная: буфер для сдвинутого операнда.
    Если count лимбов влезает в S21_MPF_STACK_LIMBS — используем
    стек, иначе calloc. Возвращает указатель и признак владения. */
-static uint64_t *shifted_alloc(size_t count, uint64_t *stack_buf,
-                               int *owned) {
+static uint64_t *shifted_alloc(size_t count, uint64_t *stack_buf, int *owned) {
   if (count <= S21_MPF_STACK_LIMBS) {
     memset(stack_buf, 0, count * sizeof(uint64_t));
     *owned = 0;
@@ -49,7 +48,7 @@ static void add_same_sign(s21_mpf_t *res, const s21_mpf_t *x,
   }
   if (owned) free(b_shifted);
 
-  res->exp  = a->exp;
+  res->exp = a->exp;
   res->sign = x->sign;
   res->kind = S21_MPF_NORMAL;
 
@@ -95,7 +94,7 @@ static void sub_diff_sign(s21_mpf_t *res, const s21_mpf_t *x,
   }
   if (owned) free(b_shifted);
 
-  res->exp  = a->exp;
+  res->exp = a->exp;
   res->sign = a->sign;
   res->kind = S21_MPF_NORMAL;
   s21_mpf_normalize(res);
@@ -318,11 +317,11 @@ static void mul_mant_rec(uint64_t *prod, const uint64_t *a, const uint64_t *b,
   size_t h = n / 2;
   size_t m = n - h; /* m == h или m == h+1 */
 
-  uint64_t *z0  = scratch;
-  uint64_t *z2  = z0 + 2 * h;
-  uint64_t *z1  = z2 + 2 * m;
-  uint64_t *s   = z1 + 2 * m + 2;
-  uint64_t *t   = s + (m + 1);
+  uint64_t *z0 = scratch;
+  uint64_t *z2 = z0 + 2 * h;
+  uint64_t *z1 = z2 + 2 * m;
+  uint64_t *s = z1 + 2 * m + 2;
+  uint64_t *t = s + (m + 1);
   uint64_t *sub = t + (m + 1);
 
   add_split(s, a, h, a + h, m);
@@ -397,28 +396,25 @@ int s21_mpf_mul_raw(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
 
   /* Собираем три mpf вручную: limbs указывают внутрь base,
      s21_mpf_init2/clear не вызываются — освобождать нечего. */
-  s21_mpf_t xw = { .limbs = base,
-                   .exp   = 0,
-                   .prec  = wp,
-                   .sign  = 0,
-                   .kind  = S21_MPF_ZERO };
-  s21_mpf_t yw = { .limbs = base + l_wp,
-                   .exp   = 0,
-                   .prec  = wp,
-                   .sign  = 0,
-                   .kind  = S21_MPF_ZERO };
-  s21_mpf_t temp = { .limbs = base + 2 * l_wp,
-                     .exp   = 0,
-                     .prec  = prod_prec,
-                     .sign  = 0,
-                     .kind  = S21_MPF_ZERO };
+  s21_mpf_t xw = {
+      .limbs = base, .exp = 0, .prec = wp, .sign = 0, .kind = S21_MPF_ZERO};
+  s21_mpf_t yw = {.limbs = base + l_wp,
+                  .exp = 0,
+                  .prec = wp,
+                  .sign = 0,
+                  .kind = S21_MPF_ZERO};
+  s21_mpf_t temp = {.limbs = base + 2 * l_wp,
+                    .exp = 0,
+                    .prec = prod_prec,
+                    .sign = 0,
+                    .kind = S21_MPF_ZERO};
 
   s21_mpf_set(&xw, x);
   s21_mpf_set(&yw, y);
 
   s21_mpf_mul_mant_karatsuba(temp.limbs, xw.limbs, yw.limbs, l_wp);
 
-  temp.exp  = xw.exp + yw.exp;
+  temp.exp = xw.exp + yw.exp;
   temp.sign = xw.sign ^ yw.sign;
   temp.kind = S21_MPF_NORMAL;
   s21_mpf_normalize(&temp);

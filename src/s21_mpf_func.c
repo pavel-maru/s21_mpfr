@@ -145,13 +145,13 @@ int s21_mpf_hypot(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
   uint32_t wp = res->prec + 64;
 
   s21_mpf_stack_t ax_s, ay_s, m_s, xm_s, ym_s, sum_s, sq_s, root_s;
-  s21_mpf_stack_init(&ax_s,   wp);
-  s21_mpf_stack_init(&ay_s,   wp);
-  s21_mpf_stack_init(&m_s,    wp);
-  s21_mpf_stack_init(&xm_s,   wp);
-  s21_mpf_stack_init(&ym_s,   wp);
-  s21_mpf_stack_init(&sum_s,  wp);
-  s21_mpf_stack_init(&sq_s,   wp);
+  s21_mpf_stack_init(&ax_s, wp);
+  s21_mpf_stack_init(&ay_s, wp);
+  s21_mpf_stack_init(&m_s, wp);
+  s21_mpf_stack_init(&xm_s, wp);
+  s21_mpf_stack_init(&ym_s, wp);
+  s21_mpf_stack_init(&sum_s, wp);
+  s21_mpf_stack_init(&sq_s, wp);
   s21_mpf_stack_init(&root_s, wp);
 
   s21_mpf_abs(&ax_s.mpf, x);
@@ -164,7 +164,7 @@ int s21_mpf_hypot(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
 
   s21_mpf_div_raw(&xm_s.mpf, &ax_s.mpf, &m_s.mpf);
   s21_mpf_div_raw(&ym_s.mpf, &ay_s.mpf, &m_s.mpf);
-  s21_mpf_mul_raw(&sq_s.mpf,  &xm_s.mpf, &xm_s.mpf);
+  s21_mpf_mul_raw(&sq_s.mpf, &xm_s.mpf, &xm_s.mpf);
   s21_mpf_mul_raw(&sum_s.mpf, &ym_s.mpf, &ym_s.mpf);
   s21_mpf_add_raw(&sum_s.mpf, &sum_s.mpf, &sq_s.mpf);
   s21_mpf_sqrt(&root_s.mpf, &sum_s.mpf);
@@ -553,8 +553,10 @@ int s21_mpf_log1p(s21_mpf_t *res, const s21_mpf_t *x) {
     return 0;
   }
   if (x->kind == S21_MPF_INF) {
-    if (x->sign) s21_mpf_set_nan(res);
-    else         s21_mpf_set_inf(res, 0);
+    if (x->sign)
+      s21_mpf_set_nan(res);
+    else
+      s21_mpf_set_inf(res, 0);
     return 0;
   }
 
@@ -613,8 +615,10 @@ int s21_mpf_expm1(s21_mpf_t *res, const s21_mpf_t *x) {
     return 0;
   }
   if (x->kind == S21_MPF_INF) {
-    if (x->sign) s21_mpf_set_si(res, -1);
-    else         s21_mpf_set_inf(res, 0);
+    if (x->sign)
+      s21_mpf_set_si(res, -1);
+    else
+      s21_mpf_set_inf(res, 0);
     return 0;
   }
 
@@ -687,8 +691,10 @@ static int cbrt_seed_from_double(s21_mpf_t *seed, const s21_mpf_t *a) {
   }
 
   double scaled = m_norm;
-  if (r == 1) scaled *= 2.0;
-  else if (r == 2) scaled *= 4.0;
+  if (r == 1)
+    scaled *= 2.0;
+  else if (r == 2)
+    scaled *= 4.0;
 
   double root = cbrt(scaled);
   if (root <= 0.0) return -1;
@@ -721,13 +727,13 @@ int s21_mpf_cbrt(s21_mpf_t *res, const s21_mpf_t *x) {
   uint32_t wp = res->prec + 64;
 
   s21_mpf_stack_t a_s, y_s, y2_s, tmp_s, three_s, two_s, next_s;
-  s21_mpf_stack_init(&a_s,     wp);
-  s21_mpf_stack_init(&y_s,     wp);
-  s21_mpf_stack_init(&y2_s,    wp);
-  s21_mpf_stack_init(&tmp_s,   wp);
+  s21_mpf_stack_init(&a_s, wp);
+  s21_mpf_stack_init(&y_s, wp);
+  s21_mpf_stack_init(&y2_s, wp);
+  s21_mpf_stack_init(&tmp_s, wp);
   s21_mpf_stack_init(&three_s, wp);
-  s21_mpf_stack_init(&two_s,   wp);
-  s21_mpf_stack_init(&next_s,  wp);
+  s21_mpf_stack_init(&two_s, wp);
+  s21_mpf_stack_init(&next_s, wp);
 
   s21_mpf_set(&a_s.mpf, x);
 
@@ -935,12 +941,12 @@ int s21_mpf_fmod(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
   uint32_t wp = res->prec + 64 + (uint32_t)E;
 
   s21_mpf_stack_t xw_s, yw_s, q_s, n_s, prod_s, r_s;
-  s21_mpf_stack_init(&xw_s,   wp);
-  s21_mpf_stack_init(&yw_s,   wp);
-  s21_mpf_stack_init(&q_s,    wp);
-  s21_mpf_stack_init(&n_s,    wp);
+  s21_mpf_stack_init(&xw_s, wp);
+  s21_mpf_stack_init(&yw_s, wp);
+  s21_mpf_stack_init(&q_s, wp);
+  s21_mpf_stack_init(&n_s, wp);
   s21_mpf_stack_init(&prod_s, wp);
-  s21_mpf_stack_init(&r_s,    wp);
+  s21_mpf_stack_init(&r_s, wp);
 
   s21_mpf_set(&xw_s.mpf, x);
   s21_mpf_set(&yw_s.mpf, y);
@@ -1151,8 +1157,8 @@ void s21_mpf_compute_pi_machin(s21_mpf_t *pi, uint32_t wp) {
    a₀ = 1, b₀ = 1/√2, t₀ = 1/4, p₀ = 1.
    Вспомогательные one / two / four создаются и освобождаются
    внутри. */
-static void pi_agm_init(s21_mpf_t *a, s21_mpf_t *b, s21_mpf_t *t,
-                        s21_mpf_t *p, uint32_t wp_int) {
+static void pi_agm_init(s21_mpf_t *a, s21_mpf_t *b, s21_mpf_t *t, s21_mpf_t *p,
+                        uint32_t wp_int) {
   s21_mpf_t one, two, four;
   s21_mpf_init2(&one, wp_int);
   s21_mpf_init2(&two, wp_int);
@@ -1399,11 +1405,15 @@ int s21_mpf_pow(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
     s21_mpf_clear(&one);
 
     if (cmp > 0) {
-      if (y->sign) s21_mpf_set_zero(res, 0);
-      else         s21_mpf_set_inf(res, 0);
+      if (y->sign)
+        s21_mpf_set_zero(res, 0);
+      else
+        s21_mpf_set_inf(res, 0);
     } else {
-      if (y->sign) s21_mpf_set_inf(res, 0);
-      else         s21_mpf_set_zero(res, 0);
+      if (y->sign)
+        s21_mpf_set_inf(res, 0);
+      else
+        s21_mpf_set_zero(res, 0);
     }
     return 0;
   }
@@ -1411,16 +1421,20 @@ int s21_mpf_pow(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
   /* x = ±inf. */
   if (x->kind == S21_MPF_INF) {
     int sign = (x->sign && y_odd) ? 1 : 0;
-    if (y->sign) s21_mpf_set_zero(res, sign);
-    else         s21_mpf_set_inf(res, sign);
+    if (y->sign)
+      s21_mpf_set_zero(res, sign);
+    else
+      s21_mpf_set_inf(res, sign);
     return 0;
   }
 
   /* x = ±0. */
   if (x->kind == S21_MPF_ZERO) {
     int sign = (x->sign && y_odd) ? 1 : 0;
-    if (y->sign) s21_mpf_set_inf(res, sign);
-    else         s21_mpf_set_zero(res, sign);
+    if (y->sign)
+      s21_mpf_set_inf(res, sign);
+    else
+      s21_mpf_set_zero(res, sign);
     return 0;
   }
 
@@ -1433,10 +1447,10 @@ int s21_mpf_pow(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
   uint32_t wp = res->prec + 64;
 
   s21_mpf_stack_t lg_s, yw_s, ylg_s, r_s;
-  s21_mpf_stack_init(&lg_s,  wp);
-  s21_mpf_stack_init(&yw_s,  wp);
+  s21_mpf_stack_init(&lg_s, wp);
+  s21_mpf_stack_init(&yw_s, wp);
   s21_mpf_stack_init(&ylg_s, wp);
-  s21_mpf_stack_init(&r_s,   wp);
+  s21_mpf_stack_init(&r_s, wp);
 
   if (x->sign) {
     s21_mpf_t xa;
@@ -1557,10 +1571,14 @@ int s21_mpf_pow_ui(s21_mpf_t *res, const s21_mpf_t *x, unsigned long n) {
 
   /* Ширина окна — adaptive, по размеру n. */
   int k;
-  if (n < (1UL << 24)) k = 3;
-  else if (sizeof(unsigned long) >= 8 && n < (1UL << 32)) k = 4;
-  else if (sizeof(unsigned long) >= 8) k = 5;
-  else k = 3; /* 32-битный unsigned long: n всегда < 2^32 */
+  if (n < (1UL << 24))
+    k = 3;
+  else if (sizeof(unsigned long) >= 8 && n < (1UL << 32))
+    k = 4;
+  else if (sizeof(unsigned long) >= 8)
+    k = 5;
+  else
+    k = 3; /* 32-битный unsigned long: n всегда < 2^32 */
 
   size_t table_count = (size_t)1 << (k - 1);
   size_t limbs_per = s21_mpf_limbs_for_prec(wp);
@@ -1646,9 +1664,9 @@ int s21_mpf_pow_si(s21_mpf_t *res, const s21_mpf_t *x, long n) {
   uint32_t wp = res->prec + 64;
 
   s21_mpf_stack_t p_s, one_s, r_s;
-  s21_mpf_stack_init(&p_s,   wp);
+  s21_mpf_stack_init(&p_s, wp);
   s21_mpf_stack_init(&one_s, wp);
-  s21_mpf_stack_init(&r_s,   wp);
+  s21_mpf_stack_init(&r_s, wp);
 
   int rc = s21_mpf_pow_ui(&p_s.mpf, x, abs_n);
   if (rc != 0) {
@@ -1742,10 +1760,10 @@ int s21_mpf_root(s21_mpf_t *res, const s21_mpf_t *x, unsigned long n) {
   uint32_t wp = res->prec + 64;
 
   s21_mpf_stack_t xa_s, log_a_s, n_s, quot_s, result_s;
-  s21_mpf_stack_init(&xa_s,     wp);
-  s21_mpf_stack_init(&log_a_s,  wp);
-  s21_mpf_stack_init(&n_s,      wp);
-  s21_mpf_stack_init(&quot_s,   wp);
+  s21_mpf_stack_init(&xa_s, wp);
+  s21_mpf_stack_init(&log_a_s, wp);
+  s21_mpf_stack_init(&n_s, wp);
+  s21_mpf_stack_init(&quot_s, wp);
   s21_mpf_stack_init(&result_s, wp);
 
   s21_mpf_abs(&xa_s.mpf, x);
@@ -1800,8 +1818,8 @@ static int hyp_exp_pair(s21_mpf_t *res, const s21_mpf_t *x, int subtract) {
   uint32_t wp = base_prec + 64 + (uint32_t)guard;
 
   s21_mpf_stack_t ep_s, em_s, sum_s;
-  s21_mpf_stack_init(&ep_s,  wp);
-  s21_mpf_stack_init(&em_s,  wp);
+  s21_mpf_stack_init(&ep_s, wp);
+  s21_mpf_stack_init(&em_s, wp);
   s21_mpf_stack_init(&sum_s, wp);
 
   s21_mpf_set(&ep_s.mpf, x);
@@ -1931,10 +1949,10 @@ int s21_mpf_asinh(s21_mpf_t *res, const s21_mpf_t *x) {
   uint32_t wp = res->prec + 64;
 
   s21_mpf_stack_t xa_s, sq_s, one_s, sum_s, root_s;
-  s21_mpf_stack_init(&xa_s,   wp);
-  s21_mpf_stack_init(&sq_s,   wp);
-  s21_mpf_stack_init(&one_s,  wp);
-  s21_mpf_stack_init(&sum_s,  wp);
+  s21_mpf_stack_init(&xa_s, wp);
+  s21_mpf_stack_init(&sq_s, wp);
+  s21_mpf_stack_init(&one_s, wp);
+  s21_mpf_stack_init(&sum_s, wp);
   s21_mpf_stack_init(&root_s, wp);
 
   s21_mpf_abs(&xa_s.mpf, x);
@@ -1989,13 +2007,13 @@ int s21_mpf_acosh(s21_mpf_t *res, const s21_mpf_t *x) {
   uint32_t wp = res->prec + 64;
 
   s21_mpf_stack_t xw_s, one_s, xm_s, xp_s, prod_s, root_s, sum_s;
-  s21_mpf_stack_init(&xw_s,   wp);
-  s21_mpf_stack_init(&one_s,  wp);
-  s21_mpf_stack_init(&xm_s,   wp);
-  s21_mpf_stack_init(&xp_s,   wp);
+  s21_mpf_stack_init(&xw_s, wp);
+  s21_mpf_stack_init(&one_s, wp);
+  s21_mpf_stack_init(&xm_s, wp);
+  s21_mpf_stack_init(&xp_s, wp);
   s21_mpf_stack_init(&prod_s, wp);
   s21_mpf_stack_init(&root_s, wp);
-  s21_mpf_stack_init(&sum_s,  wp);
+  s21_mpf_stack_init(&sum_s, wp);
 
   s21_mpf_set(&xw_s.mpf, x); /* приведение x к рабочей точности wp */
   s21_mpf_set_ui(&one_s.mpf, 1);
@@ -2055,10 +2073,10 @@ int s21_mpf_atanh(s21_mpf_t *res, const s21_mpf_t *x) {
   uint32_t wp = res->prec + 64;
 
   s21_mpf_stack_t xw_s, one_s, num_s, den_s, ratio_s;
-  s21_mpf_stack_init(&xw_s,    wp);
-  s21_mpf_stack_init(&one_s,   wp);
-  s21_mpf_stack_init(&num_s,   wp);
-  s21_mpf_stack_init(&den_s,   wp);
+  s21_mpf_stack_init(&xw_s, wp);
+  s21_mpf_stack_init(&one_s, wp);
+  s21_mpf_stack_init(&num_s, wp);
+  s21_mpf_stack_init(&den_s, wp);
   s21_mpf_stack_init(&ratio_s, wp);
 
   s21_mpf_set(&xw_s.mpf, x); /* приведение x к рабочей точности wp */
