@@ -2,10 +2,14 @@
    s21_mpfr — интерактивная утилита (REPL).
 
    Формат ввода:
-     <func> [arg1] [arg2] [prec]
+     <func> [args...] [prec]
      <number>            — то же, что 'show <number>'
 
-   Если arg1/arg2/prec пропущены — утилита спросит их отдельно.
+   Унарные функции принимают 1 аргумент, бинарные — 2,
+   тернарные — 3.  Последний токен может быть точностью
+   в битах.  Если аргументы пропущены — утилита спросит их
+   отдельно (интерактивный режим).
+
    prec — точность в битах; по умолчанию 256.  Суффикс 'd' у
    числа означает десятичные цифры: 77d == 256 бит.
 
@@ -134,6 +138,8 @@ static int wrap_neg(s21_mpf_t *res, const s21_mpf_t *x) {
 
 typedef int (*s21_unary_fn)(s21_mpf_t *, const s21_mpf_t *);
 typedef int (*s21_binary_fn)(s21_mpf_t *, const s21_mpf_t *, const s21_mpf_t *);
+typedef int (*s21_ternary_fn)(s21_mpf_t *, const s21_mpf_t *,
+                              const s21_mpf_t *, const s21_mpf_t *);
 
 typedef struct {
   const char *name;
@@ -144,6 +150,11 @@ typedef struct {
   const char *name;
   s21_binary_fn fn;
 } binary_entry_t;
+
+typedef struct {
+  const char *name;
+  s21_ternary_fn fn;
+} ternary_entry_t;
 
 static const unary_entry_t unary_table[] = {
     /* Элементарные */
@@ -192,6 +203,12 @@ static const binary_entry_t binary_table[] = {
 static const size_t binary_count =
     sizeof(binary_table) / sizeof(binary_table[0]);
 
+static const ternary_entry_t ternary_table[] = {
+    { "fma", s21_mpf_fma },
+};
+static const size_t ternary_count =
+    sizeof(ternary_table) / sizeof(ternary_table[0]);
+
 /* ------------------------------------------------------------
    Глобальное состояние REPL.
    ------------------------------------------------------------ */
@@ -217,6 +234,12 @@ static s21_unary_fn find_unary(const char *name) {
 static s21_binary_fn find_binary(const char *name) {
   for (size_t i = 0; i < binary_count; i++)
     if (strcmp(binary_table[i].name, name) == 0) return binary_table[i].fn;
+  return NULL;
+}
+
+static s21_ternary_fn find_ternary(const char *name) {
+  for (size_t i = 0; i < ternary_count; i++)
+    if (strcmp(ternary_table[i].name, name) == 0) return ternary_table[i].fn;
   return NULL;
 }
 
@@ -461,11 +484,16 @@ static void cmd_help(void) {
   printf("Бинарные: ");
   for (size_t i = 0; i < binary_count; i++)
     printf("%s%s", binary_table[i].name, i + 1 < binary_count ? " " : "\n");
+  printf("Тернарные:");
+  for (size_t i = 0; i < ternary_count; i++)
+    printf(" %s%s", ternary_table[i].name,
+           i + 1 < ternary_count ? " " : "\n");
   printf("Константы: pi [prec], ln2 [prec], e [prec]\n");
   printf("Прочее:    setprec <n>[d], prec, show <num>, dec [n],\n");
   printf("           hex [num], oct [num], bin [num],\n");
   printf("           quit/exit/q, help/?\n");
-  printf("Формат:    <func> [arg1] [arg2] [prec]\n");
+  printf("Формат:    <func> [arg1] [arg2] [prec]              -- unary/binary\n");
+  printf("           <func> [arg1] [arg2] [arg3] [prec]       -- ternary\n");
   printf("           <number>          == show <number>\n");
   printf("Точность:  число бит (например 256), либо <n>d — десятичных\n");
   printf("           цифр (например 77d == 256 бит).\n");
@@ -484,6 +512,7 @@ static void cmd_help(void) {
   printf("           точность; при setprec кэш сбрасывается.\n");
   printf("Примеры:   sin 1.5 256\n");
   printf("           pow 2 0.5 512\n");
+  printf("           fma 3 4 5             -- 3*4 + 5 = 17\n");
   printf("           cbrt 27\n");
   printf("           bin 5\n");
   printf("           show 3.14159265358979323846\n");
@@ -652,10 +681,89 @@ cleanup:
   s21_mpf_clear(&r);
 }
 
+static void cmd_ternary(const char *name, const char *a_tok,
+                        const char *b_tok, const char *c_tok,
+                        const char *prec_tok) {
+  s21_ternary_fn fn = find_ternary(name);
+  if (fn == NULL) {
+    fprintf(stderr, "неизвестная тернарная функция '%s'\n", name);
+    return;
+  }
+
+  char a_buf[256], b_buf[256], c_buf[256];
+  const char *a_str = a_tok;
+  const char *b_str = b_tok;
+  const char *c_str = c_tok;
+
+  if (a_str == NULL) {
+    char label[64];
+    snprintf(label, sizeof(label), "arg1 (%s): ", name);
+    if (!ask_arg(label, a_buf, sizeof(a_buf))) return;
+    a_str = a_buf;
+  }
+  if (b_str == NULL) {
+    char label[64];
+    snprintf(label, sizeof(label), "arg2 (%s): ", name);
+    if (!ask_arg(label, b_buf, sizeof(b_buf))) return;
+    b_str = b_buf;
+  }
+  if (c_str == NULL) {
+    char label[64];
+    snprintf(label, sizeof(label), "arg3 (%s): ", name);
+    if (!ask_arg(label, c_buf, sizeof(c_buf))) return;
+    c_str = c_buf;
+  }
+
+  uint32_t prec = g_default_prec;
+  if (prec_tok != NULL) {
+    if (!parse_prec(prec_tok, &prec)) {
+      fprintf(stderr, "%s: некорректная точность '%s'\n", name, prec_tok);
+      return;
+    }
+  } else if (g_interactive && a_tok == NULL) {
+    char label[64];
+    snprintf(label, sizeof(label), "prec [%u]: ", g_default_prec);
+    if (!ask_prec(label, &prec)) return;
+  }
+
+  s21_mpf_t x, y, z, r;
+  s21_mpf_init2(&x, prec);
+  s21_mpf_init2(&y, prec);
+  s21_mpf_init2(&z, prec);
+  s21_mpf_init2(&r, prec);
+
+  if (s21_mpf_set_str(&x, a_str, 10) != 0) {
+    fprintf(stderr, "%s: не удалось разобрать '%s'\n", name, a_str);
+    goto cleanup;
+  }
+  if (s21_mpf_set_str(&y, b_str, 10) != 0) {
+    fprintf(stderr, "%s: не удалось разобрать '%s'\n", name, b_str);
+    goto cleanup;
+  }
+  if (s21_mpf_set_str(&z, c_str, 10) != 0) {
+    fprintf(stderr, "%s: не удалось разобрать '%s'\n", name, c_str);
+    goto cleanup;
+  }
+
+  {
+    int rc = fn(&r, &x, &y, &z);
+    if (rc == 0) print_value(&r);
+    else fprintf(stderr, "%s: ошибка\n", name);
+  }
+
+cleanup:
+  s21_mpf_clear(&x);
+  s21_mpf_clear(&y);
+  s21_mpf_clear(&z);
+  s21_mpf_clear(&r);
+}
+
 static bool process_line(char *line) {
-  const char *tok[4] = { NULL, NULL, NULL, NULL };
+  /* Максимум 5 токенов: команда + 4 аргумента (для тернарных
+     операций: arg1 arg2 arg3 prec). */
+  const char *tok[5] = { NULL, NULL, NULL, NULL, NULL };
   size_t n = 0;
-  for (char *p = strtok(line, " \t"); p != NULL && n < 4;
+  for (char *p = strtok(line, " \t"); p != NULL && n < 5;
        p = strtok(NULL, " \t")) {
     tok[n++] = p;
   }
@@ -754,6 +862,12 @@ static bool process_line(char *line) {
   if (find_binary(cmd) != NULL) {
     cmd_binary(cmd, n >= 2 ? tok[1] : NULL, n >= 3 ? tok[2] : NULL,
                n >= 4 ? tok[3] : NULL);
+    return true;
+  }
+
+  if (find_ternary(cmd) != NULL) {
+    cmd_ternary(cmd, n >= 2 ? tok[1] : NULL, n >= 3 ? tok[2] : NULL,
+                n >= 4 ? tok[3] : NULL, n >= 5 ? tok[4] : NULL);
     return true;
   }
 
