@@ -1480,6 +1480,30 @@ int s21_mpf_pow(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
    используем безопасное взятие модуля через -(n + 1) + 1.
    ============================================================ */
 
+/* Sliding window exponentiation.
+
+   Таблица содержит только нечётные степени: g[i] = x^(2i+1),
+   i = 0..2^(k-1)-1, где k — ширина окна.  Основной цикл
+   обходит биты n слева направо: если текущий бит 0 — один
+   квадрат; если 1 — находим самое длинное окно (до k бит,
+   оканчивающееся на 1), возводим результат в 2^win_len
+   и умножаем на g[(w-1)/2].
+
+   Ширина k выбирается по размеру n:
+     n <  2^24  ->  k = 3  (таблица 4)
+     n <  2^32  ->  k = 4  (таблица 8)
+     иначе      ->  k = 5  (таблица 16)
+
+   Порог n >= 2^16 — ниже окно не окупает предвычисления,
+   остаётся бинарный путь.
+
+   Выигрыш по числу умножений зависит от popcount(n).  Для n
+   с малым числом единичных бит (например, степень двойки)
+   бинарный путь не хуже или лучше.  Для n с плотными
+   единичными битами — выигрыш до 20–25%.  На типичных
+   значениях n (до 2^16, парсинг точности, base-конверсия)
+   работает бинарный путь, окно включается только на
+   диапазоне, где оно даёт выигрыш. */
 int s21_mpf_pow_ui(s21_mpf_t *res, const s21_mpf_t *x, unsigned long n) {
   if (res == NULL || x == NULL) return -1;
 
@@ -1500,36 +1524,114 @@ int s21_mpf_pow_ui(s21_mpf_t *res, const s21_mpf_t *x, unsigned long n) {
   int odd_n = (int)(n & 1);
 
   if (x->kind == S21_MPF_ZERO) {
-    int sign = (x->sign && odd_n) ? 1 : 0;
-    s21_mpf_set_zero(res, sign);
+    s21_mpf_set_zero(res, x->sign && odd_n);
     return 0;
   }
   if (x->kind == S21_MPF_INF) {
-    int sign = (x->sign && odd_n) ? 1 : 0;
-    s21_mpf_set_inf(res, sign);
+    s21_mpf_set_inf(res, x->sign && odd_n);
     return 0;
   }
 
-  /* x — NORMAL.  Бинарное возведение. */
   uint32_t wp = res->prec + 64;
 
-  s21_mpf_stack_t base_s, result_s;
-  s21_mpf_stack_init(&base_s,   wp);
+  /* Порог: ниже 2^16 окно не окупается, остаётся бинарный путь. */
+  if (n < (1UL << 16)) {
+    s21_mpf_stack_t base_s, result_s;
+    s21_mpf_stack_init(&base_s, wp);
+    s21_mpf_stack_init(&result_s, wp);
+
+    s21_mpf_set(&base_s.mpf, x);
+    s21_mpf_set_ui(&result_s.mpf, 1);
+
+    while (n > 0) {
+      if (n & 1) s21_mpf_mul_raw(&result_s.mpf, &result_s.mpf, &base_s.mpf);
+      n >>= 1;
+      if (n > 0) s21_mpf_mul_raw(&base_s.mpf, &base_s.mpf, &base_s.mpf);
+    }
+
+    s21_mpf_set(res, &result_s.mpf);
+    s21_mpf_stack_clear(&base_s);
+    s21_mpf_stack_clear(&result_s);
+    return 0;
+  }
+
+  /* Ширина окна — adaptive, по размеру n. */
+  int k;
+  if (n < (1UL << 24)) k = 3;
+  else if (sizeof(unsigned long) >= 8 && n < (1UL << 32)) k = 4;
+  else if (sizeof(unsigned long) >= 8) k = 5;
+  else k = 3; /* 32-битный unsigned long: n всегда < 2^32 */
+
+  size_t table_count = (size_t)1 << (k - 1);
+  size_t limbs_per = s21_mpf_limbs_for_prec(wp);
+
+  uint64_t *table_buf = calloc(table_count * limbs_per, sizeof(uint64_t));
+  if (table_buf == NULL) return -1;
+
+  s21_mpf_t *g = malloc(table_count * sizeof(s21_mpf_t));
+  if (g == NULL) {
+    free(table_buf);
+    return -1;
+  }
+
+  for (size_t i = 0; i < table_count; i++) {
+    g[i].limbs = table_buf + i * limbs_per;
+    g[i].exp = 0;
+    g[i].prec = wp;
+    g[i].sign = 0;
+    g[i].kind = S21_MPF_ZERO;
+  }
+
+  s21_mpf_stack_t xw_s, x2_s, result_s;
+  s21_mpf_stack_init(&xw_s, wp);
+  s21_mpf_stack_init(&x2_s, wp);
   s21_mpf_stack_init(&result_s, wp);
 
-  s21_mpf_set(&base_s.mpf, x);
+  s21_mpf_set(&xw_s.mpf, x);
+  s21_mpf_mul_raw(&x2_s.mpf, &xw_s.mpf, &xw_s.mpf); /* x^2 */
+
+  /* g[0] = x, g[i] = g[i-1] * x^2 = x^(2i+1). */
+  s21_mpf_set(&g[0], &xw_s.mpf);
+  for (size_t i = 1; i < table_count; i++) {
+    s21_mpf_mul_raw(&g[i], &g[i - 1], &x2_s.mpf);
+  }
+
   s21_mpf_set_ui(&result_s.mpf, 1);
 
-  while (n > 0) {
-    if (n & 1) s21_mpf_mul_raw(&result_s.mpf, &result_s.mpf, &base_s.mpf);
-    n >>= 1;
-    if (n > 0) s21_mpf_mul_raw(&base_s.mpf, &base_s.mpf, &base_s.mpf);
+  int top_bit = (int)(sizeof(unsigned long) * 8 - 1 - __builtin_clzl(n));
+  int i_bit = top_bit;
+
+  while (i_bit >= 0) {
+    if (((n >> i_bit) & 1) == 0) {
+      s21_mpf_mul_raw(&result_s.mpf, &result_s.mpf, &result_s.mpf);
+      i_bit--;
+    } else {
+      int l = i_bit - k + 1;
+      if (l < 0) l = 0;
+      /* Продвигаем l вправо, пока младший бит окна нулевой.  Бит
+         i_bit = 1 (мы в else), значит цикл гарантированно
+         остановится на l <= i_bit. */
+      while (((n >> l) & 1) == 0) l++;
+
+      int win_len = i_bit - l + 1;
+      unsigned long w = (n >> l) & (((unsigned long)1 << win_len) - 1);
+
+      for (int j = 0; j < win_len; j++) {
+        s21_mpf_mul_raw(&result_s.mpf, &result_s.mpf, &result_s.mpf);
+      }
+      s21_mpf_mul_raw(&result_s.mpf, &result_s.mpf, &g[(w - 1) / 2]);
+
+      i_bit = l - 1;
+    }
   }
 
   s21_mpf_set(res, &result_s.mpf);
 
-  s21_mpf_stack_clear(&base_s);
+  s21_mpf_stack_clear(&xw_s);
+  s21_mpf_stack_clear(&x2_s);
   s21_mpf_stack_clear(&result_s);
+  free(g);
+  free(table_buf);
   return 0;
 }
 

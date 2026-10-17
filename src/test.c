@@ -2158,6 +2158,138 @@ static void test_pow_ui_si(void) {
   printf("[ok] pow_ui / pow_si\n");
 }
 
+static void test_pow_ui_window(void) {
+  s21_mpf_t x, r, e, diff, thr, log_r;
+  s21_mpf_init2(&x, 256);
+  s21_mpf_init2(&r, 256);
+  s21_mpf_init2(&e, 256);
+  s21_mpf_init2(&diff, 256);
+  s21_mpf_init2(&thr, 256);
+  s21_mpf_init2(&log_r, 256);
+  s21_mpf_set_d(&thr, 1e-70);
+
+  /* n = 2^16 = 65536 -- ровно на границе, окно включено.
+     pow_ui(2, 65536) = 2^65536.  log2 = 65536 точно. */
+  s21_mpf_set_ui(&x, 2);
+  s21_mpf_pow_ui(&r, &x, 65536);
+  s21_mpf_log2(&log_r, &r);
+  s21_mpf_set_ui(&e, 65536);
+  s21_mpf_sub(&diff, &log_r, &e);
+  s21_mpf_abs(&diff, &diff);
+  ASSERT(s21_mpf_cmp(&diff, &thr) < 0, "pow_ui(2, 65536) = 2^65536");
+
+  /* n = 65535 = 2^16 - 1 -- бинарный путь, но проверка нужна
+     для покрытия границы. */
+  s21_mpf_pow_ui(&r, &x, 65535);
+  s21_mpf_log2(&log_r, &r);
+  s21_mpf_set_ui(&e, 65535);
+  s21_mpf_sub(&diff, &log_r, &e);
+  s21_mpf_abs(&diff, &diff);
+  ASSERT(s21_mpf_cmp(&diff, &thr) < 0, "pow_ui(2, 65535) = 2^65535");
+
+  /* n = 0x1FFFF = 131071 -- 17 бит, все единицы, k = 3. */
+  s21_mpf_pow_ui(&r, &x, 131071);
+  s21_mpf_log2(&log_r, &r);
+  s21_mpf_set_ui(&e, 131071);
+  s21_mpf_sub(&diff, &log_r, &e);
+  s21_mpf_abs(&diff, &diff);
+  ASSERT(s21_mpf_cmp(&diff, &thr) < 0, "pow_ui(2, 131071) = 2^131071");
+
+  /* n = 2^20 = 1048576 -- плотно в окно, k = 3. */
+  s21_mpf_pow_ui(&r, &x, 1048576UL);
+  s21_mpf_log2(&log_r, &r);
+  s21_mpf_set_ui(&e, 1048576);
+  s21_mpf_sub(&diff, &log_r, &e);
+  s21_mpf_abs(&diff, &diff);
+  ASSERT(s21_mpf_cmp(&diff, &thr) < 0, "pow_ui(2, 2^20) = 2^(2^20)");
+
+  /* n = 0xFFFFFF = 16777215 -- все единицы, 24 бита, k = 3
+     (n < 2^24, значит ещё k = 3). */
+  s21_mpf_pow_ui(&r, &x, 16777215UL);
+  s21_mpf_log2(&log_r, &r);
+  s21_mpf_set_ui(&e, 16777215);
+  s21_mpf_sub(&diff, &log_r, &e);
+  s21_mpf_abs(&diff, &diff);
+  ASSERT(s21_mpf_cmp(&diff, &thr) < 0, "pow_ui(2, 0xFFFFFF) = 2^16777215");
+
+  /* n = 0xFFFFFFFF = 4294967295 -- 32 бита, все единицы, k = 4.
+     Это диапазон, где окно действительно выигрывает у бинарного
+     по числу умножений. */
+  if (sizeof(unsigned long) >= 8) {
+    s21_mpf_pow_ui(&r, &x, 4294967295UL);
+    s21_mpf_log2(&log_r, &r);
+    s21_mpf_set_ui(&e, 4294967295UL);
+    s21_mpf_sub(&diff, &log_r, &e);
+    s21_mpf_abs(&diff, &diff);
+    ASSERT(s21_mpf_cmp(&diff, &thr) < 0,
+           "pow_ui(2, 0xFFFFFFFF) = 2^4294967295");
+  }
+
+  /* Отрицательное основание, чётный n: pow_ui(-2, 65536) > 0. */
+  s21_mpf_set_si(&x, -2);
+  s21_mpf_pow_ui(&r, &x, 65536);
+  ASSERT(r.sign == 0, "pow_ui(-2, 65536) positive");
+  s21_mpf_log2(&log_r, &r);
+  s21_mpf_set_ui(&e, 65536);
+  s21_mpf_sub(&diff, &log_r, &e);
+  s21_mpf_abs(&diff, &diff);
+  ASSERT(s21_mpf_cmp(&diff, &thr) < 0, "pow_ui(-2, 65536) = 2^65536");
+
+  /* pow_ui(-1, 65536) = 1 (чётное), pow_ui(-1, 65537) = -1 (нечётное). */
+  s21_mpf_set_si(&x, -1);
+  s21_mpf_pow_ui(&r, &x, 65536);
+  s21_mpf_set_ui(&e, 1);
+  ASSERT(s21_mpf_cmp(&r, &e) == 0, "pow_ui(-1, 65536) = 1");
+
+  s21_mpf_pow_ui(&r, &x, 65537);
+  s21_mpf_set_si(&e, -1);
+  ASSERT(s21_mpf_cmp(&r, &e) == 0, "pow_ui(-1, 65537) = -1");
+
+  /* pow_ui(1, 2^32) = 1. */
+  if (sizeof(unsigned long) >= 8) {
+    s21_mpf_set_ui(&x, 1);
+    s21_mpf_pow_ui(&r, &x, 4294967296UL);
+    s21_mpf_set_ui(&e, 1);
+    ASSERT(s21_mpf_cmp(&r, &e) == 0, "pow_ui(1, 2^32) = 1");
+  }
+
+  /* Согласованность: pow_ui(x, a)^2 ≈ pow_ui(x, 2a).
+     x = 1.5, a = 100000.  Оба n >= 2^16, оба идут через окно. */
+  s21_mpf_set_d(&x, 1.5);
+  {
+    s21_mpf_t ra, r2a, la, l2a;
+    s21_mpf_init2(&ra, 256);
+    s21_mpf_init2(&r2a, 256);
+    s21_mpf_init2(&la, 256);
+    s21_mpf_init2(&l2a, 256);
+
+    s21_mpf_pow_ui(&ra, &x, 100000);
+    s21_mpf_mul(&ra, &ra, &ra);
+    s21_mpf_pow_ui(&r2a, &x, 200000);
+
+    s21_mpf_log2(&la, &ra);
+    s21_mpf_log2(&l2a, &r2a);
+    s21_mpf_sub(&diff, &la, &l2a);
+    s21_mpf_abs(&diff, &diff);
+    s21_mpf_set_d(&thr, 1e-60);
+    ASSERT(s21_mpf_cmp(&diff, &thr) < 0,
+           "pow_ui(1.5, 100000)^2 ≈ pow_ui(1.5, 200000)");
+
+    s21_mpf_clear(&ra);
+    s21_mpf_clear(&r2a);
+    s21_mpf_clear(&la);
+    s21_mpf_clear(&l2a);
+  }
+
+  s21_mpf_clear(&x);
+  s21_mpf_clear(&r);
+  s21_mpf_clear(&e);
+  s21_mpf_clear(&diff);
+  s21_mpf_clear(&thr);
+  s21_mpf_clear(&log_r);
+  printf("[ok] pow_ui windowed (n >= 2^16)\n");
+}
+
 static void test_root(void) {
   s21_mpf_t x, r, e, diff, thr;
   s21_mpf_init2(&x, 256);
@@ -4572,6 +4704,7 @@ int main(void) {
       {"hyperbolic",                       test_hyperbolic},
       {"log2 / log10",                     test_log2_log10},
       {"pow_ui / pow_si",                  test_pow_ui_si},
+      {"pow_ui windowed",                  test_pow_ui_window},
       {"root",                             test_root},
       {"hypot",                            test_hypot},
       {"sin / cos",                        test_sin_cos},
