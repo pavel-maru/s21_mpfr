@@ -3557,9 +3557,15 @@ static void test_base_conversion(void) {
   s21_mpf_set_ui(&e, 482);
   ASSERT(s21_mpf_cmp(&x, &e) == 0, "'1e2' base 16 = 482, не 100");
 
-  /* Префикс 0x не принимается. */
-  ASSERT(s21_mpf_set_str(&x, "0x1", 16) == -1,
-         "set_str: '0x1' base 16 → -1");
+  /* Префикс 0x теперь принимается (C99 hexfloat). */
+  ASSERT(s21_mpf_set_str(&x, "0x1", 16) == 0, "set_str: '0x1' base 16");
+  s21_mpf_set_ui(&e, 1);
+  ASSERT(s21_mpf_cmp(&x, &e) == 0, "'0x1' base 16 = 1");
+
+  ASSERT(s21_mpf_set_str(&x, "0xff", 16) == 0, "set_str: '0xff' base 16");
+  s21_mpf_set_ui(&e, 255);
+  ASSERT(s21_mpf_cmp(&x, &e) == 0, "'0xff' base 16 = 255");
+
   ASSERT(s21_mpf_set_str(&x, "g", 16) == -1, "set_str: 'g' base 16 → -1");
 
   /* ---------- set_str: base 36 ---------- */
@@ -4366,6 +4372,125 @@ static void test_fma(void) {
   printf("[ok] fma\n");
 }
 
+static void test_hexfloat(void) {
+  s21_mpf_t x, e, diff, thr;
+  s21_mpf_init2(&x, 256);
+  s21_mpf_init2(&e, 256);
+  s21_mpf_init2(&diff, 256);
+  s21_mpf_init2(&thr, 256);
+  s21_mpf_set_d(&thr, 1e-15);
+
+  /* Префикс 0x */
+  ASSERT(s21_mpf_set_str(&x, "0x1", 16) == 0, "hexfloat: '0x1' rc");
+  s21_mpf_set_ui(&e, 1);
+  ASSERT(s21_mpf_cmp(&x, &e) == 0, "'0x1' = 1");
+
+  ASSERT(s21_mpf_set_str(&x, "0xff", 16) == 0, "hexfloat: '0xff' rc");
+  s21_mpf_set_ui(&e, 255);
+  ASSERT(s21_mpf_cmp(&x, &e) == 0, "'0xff' = 255");
+
+  ASSERT(s21_mpf_set_str(&x, "0XAB", 16) == 0, "hexfloat: '0XAB' rc");
+  s21_mpf_set_ui(&e, 171);
+  ASSERT(s21_mpf_cmp(&x, &e) == 0, "'0XAB' = 171");
+
+  /* p-экспонента -- степень двойки */
+  ASSERT(s21_mpf_set_str(&x, "0x1p0", 16) == 0, "hexfloat: '0x1p0' rc");
+  s21_mpf_set_ui(&e, 1);
+  ASSERT(s21_mpf_cmp(&x, &e) == 0, "'0x1p0' = 1");
+
+  ASSERT(s21_mpf_set_str(&x, "0x1p4", 16) == 0, "hexfloat: '0x1p4' rc");
+  s21_mpf_set_ui(&e, 16);
+  ASSERT(s21_mpf_cmp(&x, &e) == 0, "'0x1p4' = 16");
+
+  ASSERT(s21_mpf_set_str(&x, "0x1p-1", 16) == 0, "hexfloat: '0x1p-1' rc");
+  s21_mpf_set_d(&e, 0.5);
+  ASSERT(s21_mpf_cmp(&x, &e) == 0, "'0x1p-1' = 0.5");
+
+  ASSERT(s21_mpf_set_str(&x, "0x1p+4", 16) == 0, "hexfloat: '0x1p+4' rc");
+  s21_mpf_set_ui(&e, 16);
+  ASSERT(s21_mpf_cmp(&x, &e) == 0, "'0x1p+4' = 16");
+
+  /* Дробная мантисса */
+  ASSERT(s21_mpf_set_str(&x, "0x1.8", 16) == 0, "hexfloat: '0x1.8' rc");
+  s21_mpf_set_d(&e, 1.5);
+  ASSERT(s21_mpf_cmp(&x, &e) == 0, "'0x1.8' = 1.5");
+
+  ASSERT(s21_mpf_set_str(&x, "0x1.8p0", 16) == 0, "hexfloat: '0x1.8p0' rc");
+  ASSERT(s21_mpf_cmp(&x, &e) == 0, "'0x1.8p0' = 1.5");
+
+  ASSERT(s21_mpf_set_str(&x, "0x1.8p4", 16) == 0, "hexfloat: '0x1.8p4' rc");
+  s21_mpf_set_ui(&e, 24);
+  ASSERT(s21_mpf_cmp(&x, &e) == 0, "'0x1.8p4' = 24");
+
+  ASSERT(s21_mpf_set_str(&x, "0x1.8p1", 16) == 0, "hexfloat: '0x1.8p1' rc");
+  s21_mpf_set_ui(&e, 3);
+  ASSERT(s21_mpf_cmp(&x, &e) == 0, "'0x1.8p1' = 3");
+
+  /* Без префикса 0x -- p-экспонента всё равно работает */
+  ASSERT(s21_mpf_set_str(&x, "1p4", 16) == 0, "hexfloat: '1p4' rc");
+  s21_mpf_set_ui(&e, 16);
+  ASSERT(s21_mpf_cmp(&x, &e) == 0, "'1p4' base 16 = 16");
+
+  ASSERT(s21_mpf_set_str(&x, "ffp4", 16) == 0, "hexfloat: 'ffp4' rc");
+  s21_mpf_set_ui(&e, 4080);
+  ASSERT(s21_mpf_cmp(&x, &e) == 0, "'ffp4' = 4080");
+
+  /* Знак */
+  ASSERT(s21_mpf_set_str(&x, "-0x1.8p4", 16) == 0,
+         "hexfloat: '-0x1.8p4' rc");
+  s21_mpf_set_si(&e, -24);
+  ASSERT(s21_mpf_cmp(&x, &e) == 0, "'-0x1.8p4' = -24");
+
+  /* Большая экспонента: 2^100 */
+  ASSERT(s21_mpf_set_str(&x, "0x1p100", 16) == 0,
+         "hexfloat: '0x1p100' rc");
+  s21_mpf_set_ui(&e, 1);
+  e.exp += 100;
+  s21_mpf_normalize(&e);
+  ASSERT(s21_mpf_cmp(&x, &e) == 0, "'0x1p100' = 2^100");
+
+  /* Round-trip: π как C99 hexfloat double (0x1.921fb54442d18p+1). */
+  ASSERT(s21_mpf_set_str(&x, "0x1.921fb54442d18p+1", 16) == 0,
+         "hexfloat: 'pi' rc");
+  s21_mpf_set_d(&e, 3.141592653589793);
+  s21_mpf_sub(&diff, &x, &e);
+  s21_mpf_abs(&diff, &diff);
+  ASSERT(s21_mpf_cmp(&diff, &thr) < 0, "'0x1.921fb...p+1' ≈ π");
+
+  /* Ноль с экспонентой */
+  ASSERT(s21_mpf_set_str(&x, "0x0p4", 16) == 0, "hexfloat: '0x0p4' rc");
+  ASSERT(s21_mpf_is_zero(&x) && x.sign == 0, "'0x0p4' = +0");
+
+  ASSERT(s21_mpf_set_str(&x, "-0x0p-4", 16) == 0, "hexfloat: '-0x0p-4' rc");
+  ASSERT(s21_mpf_is_zero(&x) && x.sign == 1, "'-0x0p-4' = -0");
+
+  /* Без p -- обычный hex, как раньше */
+  ASSERT(s21_mpf_set_str(&x, "0x1.8", 16) == 0,
+         "hexfloat: '0x1.8' (no p) rc");
+  s21_mpf_set_d(&e, 1.5);
+  ASSERT(s21_mpf_cmp(&x, &e) == 0, "'0x1.8' (no p) = 1.5");
+
+  /* Ошибки */
+  ASSERT(s21_mpf_set_str(&x, "0x", 16) == -1, "hexfloat: '0x' → -1");
+  ASSERT(s21_mpf_set_str(&x, "0xp4", 16) == -1, "hexfloat: '0xp4' → -1");
+  ASSERT(s21_mpf_set_str(&x, "0x1p", 16) == -1, "hexfloat: '0x1p' → -1");
+  ASSERT(s21_mpf_set_str(&x, "0x1p+", 16) == -1, "hexfloat: '0x1p+' → -1");
+  ASSERT(s21_mpf_set_str(&x, "0x1p-", 16) == -1, "hexfloat: '0x1p-' → -1");
+  ASSERT(s21_mpf_set_str(&x, "0x1pg", 16) == -1,
+         "hexfloat: '0x1pg' → -1 ('g' не цифра)");
+  ASSERT(s21_mpf_set_str(&x, "0xg", 16) == -1, "hexfloat: '0xg' → -1");
+
+  /* p в base != 16 -- не разделитель экспоненты. */
+  ASSERT(s21_mpf_set_str(&x, "1p4", 10) == -1,
+         "set_str: '1p4' base 10 → -1");
+
+  /* 0x в base != 16 -- не префикс. */
+  ASSERT(s21_mpf_set_str(&x, "0x1", 10) == -1,
+         "set_str: '0x1' base 10 → -1");
+
+  printf("[ok] hexfloat\n");
+}
+
 static void test_ulp_diagnostics(void) {
   struct {
     const char *name;
@@ -4466,6 +4591,7 @@ int main(void) {
       {"log1p / expm1",                    test_log1p_expm1},
       {"cbrt",                             test_cbrt},
       {"fma",                              test_fma},
+      {"hexfloat",                         test_hexfloat},
       {"ulp diagnostics",                  test_ulp_diagnostics},
   };
   const size_t n = sizeof(tests) / sizeof(tests[0]);

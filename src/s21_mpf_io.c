@@ -102,7 +102,9 @@ int s21_mpf_set_str(s21_mpf_t *x, const char *str, int base) {
     p++;
   }
 
-  /* Спецзначения разбираются до цифр и во всех базах. */
+  /* C99 hexfloat prefix 0x / 0X -- only for base 16. */
+  if (base == 16 && p[0] == '0' && (p[1] == 'x' || p[1] == 'X')) p += 2;
+
   if (parse_special(p, sign, x)) return 0;
 
   uint32_t wp = x->prec + 64;
@@ -161,8 +163,37 @@ int s21_mpf_set_str(s21_mpf_t *x, const char *str, int base) {
     return -1;
   }
 
-  /* Экспонента e/E — только для base 10.  Для base ≥ 15 'e' —
-     цифра, поэтому она уже была поглощена на этапе целой части. */
+  /* C99 hexfloat: p / P-экспонента -- десятичное число, задающее
+     степень двойки.  Только для base 16.  Значение итога:
+     M · base^(-frac_digits) · 2^(p_exp).  Применяется коррекцией
+     M.exp в самом конце -- умножение на степень двойки точно. */
+  int64_t p_exp = 0;
+  int has_p_exp = 0;
+  if (base == 16 && (*p == 'p' || *p == 'P')) {
+    p++;
+    int pe_sign = 0;
+    if (*p == '+') {
+      p++;
+    } else if (*p == '-') {
+      pe_sign = 1;
+      p++;
+    }
+    int has_pe_digits = 0;
+    while (isdigit((unsigned char)*p)) {
+      has_pe_digits = 1;
+      p_exp = p_exp * 10 + (*p - '0');
+      p++;
+    }
+    if (!has_pe_digits) {
+      s21_mpf_clear(&M);
+      s21_mpf_clear(&bval);
+      return -1;
+    }
+    if (pe_sign) p_exp = -p_exp;
+    has_p_exp = 1;
+  }
+
+  /* Десятичная экспонента e / E -- только для base 10. */
   int64_t e_part = 0;
   if (base == 10 && (*p == 'e' || *p == 'E')) {
     p++;
@@ -187,9 +218,6 @@ int s21_mpf_set_str(s21_mpf_t *x, const char *str, int base) {
     if (e_sign) e_part = -e_part;
   }
 
-  /* Проверка хвоста — до ветки !seen_nonzero, чтобы "0x1" в base 16
-     и "0abc" в base 10 отвергались, а "0" и "0.000" оставались
-     валидным нулём. */
   if (*p != '\0') {
     s21_mpf_clear(&M);
     s21_mpf_clear(&bval);
@@ -216,6 +244,10 @@ int s21_mpf_set_str(s21_mpf_t *x, const char *str, int base) {
       s21_mpf_div_raw(&M, &M, &pb);
     s21_mpf_clear(&pb);
   }
+
+  /* Применяем hexfloat-экспоненту: M *= 2^(p_exp).  Точная
+     операция -- мантисса не меняется, только экспонента. */
+  if (has_p_exp) M.exp += p_exp;
 
   M.sign = sign;
   s21_mpf_set_round(x, &M, S21_MPF_RNDN);
