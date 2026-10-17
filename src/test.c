@@ -3762,6 +3762,42 @@ static void test_base_conversion(void) {
   printf("[ok] base conversion (2/8/16/36)\n");
 }
 
+static void test_fprint(void) {
+  s21_mpf_t x;
+  s21_mpf_init2(&x, 64);
+  char buf[128];
+
+  /* fprint +inf → "+inf\n" */
+  s21_mpf_set_inf(&x, 0);
+  FILE *tmp = tmpfile();
+  ASSERT(tmp != NULL, "fprint: tmpfile");
+  s21_mpf_fprint(tmp, &x);
+  rewind(tmp);
+  memset(buf, 0, sizeof(buf));
+  ASSERT(fgets(buf, sizeof(buf), tmp) != NULL, "fprint: fgets");
+  ASSERT(strcmp(buf, "+inf\n") == 0, "fprint: +inf");
+  fclose(tmp);
+
+  /* fprint_d 42 → "+42\n" */
+  s21_mpf_set_ui(&x, 42);
+  tmp = tmpfile();
+  ASSERT(tmp != NULL, "fprint_d: tmpfile");
+  s21_mpf_fprint_d(tmp, &x);
+  rewind(tmp);
+  memset(buf, 0, sizeof(buf));
+  ASSERT(fgets(buf, sizeof(buf), tmp) != NULL, "fprint_d: fgets");
+  ASSERT(strcmp(buf, "+42\n") == 0, "fprint_d: 42");
+  fclose(tmp);
+
+  /* print / print_d — обёртки над stdout; NULL-путь новых
+     функций должен быть no-op без падения. */
+  s21_mpf_fprint(NULL, &x);
+  s21_mpf_fprint_d(NULL, &x);
+
+  s21_mpf_clear(&x);
+  printf("[ok] fprint / fprint_d\n");
+}
+
 static void test_rounding_utils(void) {
   s21_mpf_t x, r, e;
   s21_mpf_init2(&x, 256);
@@ -4724,6 +4760,7 @@ int main(void) {
       {"set_str", test_set_str},
       {"get_str", test_get_str},
       {"base conversion (2/8/16/36)", test_base_conversion},
+      { "fprint / fprint_d", test_fprint },
       {"trunc / floor / ceil / round", test_rounding_utils},
       {"fmod", test_fmod},
       {"log1p / expm1", test_log1p_expm1},

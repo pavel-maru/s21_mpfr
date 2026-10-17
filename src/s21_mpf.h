@@ -3,6 +3,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 
 /* Режимы округления (совместимы с MPFR) */
 typedef enum {
@@ -361,6 +362,14 @@ int s21_mpf_get_str(char *buf, size_t bufsize, int *exp_out, int base,
 
 /* ============== Печать ============== */
 
+/* Вывод в произвольный поток.  Формат идентичен print / print_d;
+   fprint(stdout, x) эквивалентен print(x).  NULL stream или x —
+   no-op. */
+void s21_mpf_fprint(FILE *stream, const s21_mpf_t *x);
+void s21_mpf_fprint_d(FILE *stream, const s21_mpf_t *x);
+
+/* Тонкие обёртки: print(x) == fprint(stdout, x);
+   print_d(x) == fprint_d(stdout, x). */
 void s21_mpf_print(const s21_mpf_t *x);
 void s21_mpf_print_d(const s21_mpf_t *x);
 
