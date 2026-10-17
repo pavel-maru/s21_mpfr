@@ -4621,6 +4621,10 @@ static void test_hexfloat(void) {
   /* 0x в base != 16 -- не префикс. */
   ASSERT(s21_mpf_set_str(&x, "0x1", 10) == -1, "set_str: '0x1' base 10 → -1");
 
+  s21_mpf_clear(&x);
+  s21_mpf_clear(&e);
+  s21_mpf_clear(&diff);
+  s21_mpf_clear(&thr);
   printf("[ok] hexfloat\n");
 }
 
