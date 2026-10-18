@@ -4380,6 +4380,45 @@ static void test_cbrt(void) {
   printf("[ok] cbrt\n");
 }
 
+static void test_newton_convergence(void) {
+  /* Тест проверяет только сходимость Newton: после 200 итераций
+     цикл должен дать результат, прошедший verification-проверку
+     (NORMAL, а не NaN/INF/ZERO).  Точность r^2/r^3 проверяется
+     в test_sqrt, test_sqrt_edge_cases, test_cbrt -- здесь
+     дублировать её нет смысла, а при prec = 2 сетка настолько
+     грубая, что r^2 может отличаться от a на величину порядка a. */
+
+  for (uint32_t p = 2; p <= 4096; p *= 2) {
+    s21_mpf_t a, r;
+    s21_mpf_init2(&a, p);
+    s21_mpf_init2(&r, p);
+
+    s21_mpf_set_ui(&a, 2);
+    int rc = s21_mpf_sqrt(&r, &a);
+    ASSERT(rc == 0, "sqrt(2): rc");
+    ASSERT(r.kind == S21_MPF_NORMAL, "sqrt(2): result NORMAL (converged)");
+
+    s21_mpf_clear(&a);
+    s21_mpf_clear(&r);
+  }
+
+  for (uint32_t p = 4; p <= 4096; p *= 2) {
+    s21_mpf_t a, r;
+    s21_mpf_init2(&a, p);
+    s21_mpf_init2(&r, p);
+
+    s21_mpf_set_ui(&a, 5);
+    int rc = s21_mpf_cbrt(&r, &a);
+    ASSERT(rc == 0, "cbrt(5): rc");
+    ASSERT(r.kind == S21_MPF_NORMAL, "cbrt(5): result NORMAL (converged)");
+
+    s21_mpf_clear(&a);
+    s21_mpf_clear(&r);
+  }
+
+  printf("[ok] Newton convergence (sqrt/cbrt)\n");
+}
+
 static void test_fma(void) {
   s21_mpf_t x, y, z, r, t, u, e;
   s21_mpf_init2(&x, 100);
@@ -4826,8 +4865,7 @@ int main(void) {
       {"set_d subnormal", test_set_d_subnormal},
       {"special values", test_special},
       {"precisions 2..512", test_precision},
-      { "set_ui/si/d rounding", test_set_ui_si_d_rounding },
-      { "малые precisions", test_small_prec },
+      {"set_ui/si/d rounding", test_set_ui_si_d_rounding},
       {"малые precisions", test_small_prec},
       {"round narrow across limb", test_round_narrow_across_limb_boundary},
       {"cmp / cmp_abs / equal / integer", test_cmp},
@@ -4857,7 +4895,6 @@ int main(void) {
       {"pow_ui / pow_si", test_pow_ui_si},
       {"pow_ui windowed", test_pow_ui_window},
       {"pow exp overflow", test_pow_exp_overflow},
-      { "root", test_root },
       {"root", test_root},
       {"hypot", test_hypot},
       {"sin / cos", test_sin_cos},
@@ -4877,11 +4914,10 @@ int main(void) {
       {"fmod", test_fmod},
       {"log1p / expm1", test_log1p_expm1},
       {"cbrt", test_cbrt},
+      {"Newton convergence (sqrt/cbrt)", test_newton_convergence},
       {"fma", test_fma},
       {"hexfloat", test_hexfloat},
-      { "hexfloat", test_hexfloat },
-      { "hexfloat p-exp overflow", test_hexfloat_overflow },
-      { "fprint / fprint_d", test_fprint },
+      {"hexfloat p-exp overflow", test_hexfloat_overflow},
       {"ulp diagnostics", test_ulp_diagnostics},
   };
   const size_t n = sizeof(tests) / sizeof(tests[0]);

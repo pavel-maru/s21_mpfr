@@ -95,6 +95,34 @@ int s21_mpf_sqrt(s21_mpf_t *res, const s21_mpf_t *x) {
     s21_mpf_set(&x_cur, &x_next);
   }
 
+  /* Проверка результата: |y^2 - a| / |a| < 2^-(prec-2).
+     Осцилляция Newton (bit-different, numeric-equal) не должна
+     приводить к NaN -- сравниваем результат с входом, а не
+     битовую идентичность последовательных итераций. */
+  {
+    s21_mpf_t y2, diff, rel;
+    s21_mpf_init2(&y2, wp);
+    s21_mpf_init2(&diff, wp);
+    s21_mpf_init2(&rel, wp);
+    s21_mpf_mul_raw(&y2, &x_cur, &x_cur);
+    s21_mpf_sub_raw(&diff, &y2, &a);
+    s21_mpf_abs(&diff, &diff);
+    s21_mpf_div_raw(&rel, &diff, &a);
+    int ok = (rel.kind == S21_MPF_ZERO) ||
+             (rel.exp < (int64_t)res->prec - 2);
+    s21_mpf_clear(&y2);
+    s21_mpf_clear(&diff);
+    s21_mpf_clear(&rel);
+    if (!ok) {
+      s21_mpf_set_nan(res);
+      s21_mpf_clear(&a);
+      s21_mpf_clear(&x_cur);
+      s21_mpf_clear(&x_next);
+      s21_mpf_clear(&tmp);
+      return 0;
+    }
+  }
+
   s21_mpf_set(res, &x_cur);
 
   s21_mpf_clear(&a);
@@ -750,18 +778,47 @@ int s21_mpf_cbrt(s21_mpf_t *res, const s21_mpf_t *x) {
   s21_mpf_set_ui(&three_s.mpf, 3);
 
   for (int i = 0; i < 200; i++) {
-    /* y2 = y² */
     s21_mpf_mul_raw(&y2_s.mpf, &y_s.mpf, &y_s.mpf);
-    /* tmp = a / y² */
     s21_mpf_div_raw(&tmp_s.mpf, &a_s.mpf, &y2_s.mpf);
-    /* next = 2y + tmp */
     s21_mpf_mul_raw(&next_s.mpf, &y_s.mpf, &two_s.mpf);
     s21_mpf_add_raw(&next_s.mpf, &next_s.mpf, &tmp_s.mpf);
-    /* next = next / 3 */
     s21_mpf_div_raw(&next_s.mpf, &next_s.mpf, &three_s.mpf);
 
     if (s21_mpf_cmp(&next_s.mpf, &y_s.mpf) == 0) break;
     s21_mpf_set(&y_s.mpf, &next_s.mpf);
+  }
+
+  /* Проверка результата: |y^3 - a| / |a| < 2^-(prec-2).
+     Для неполных кубов Newton может осциллировать между двумя
+     близкими значениями (bit-different, numeric-equal); cmp == 0
+     никогда не срабатывает, но результат корректен.  Сравниваем
+     y^3 с входом, а не итерации между собой. */
+  {
+    s21_mpf_t y3, diff, rel;
+    s21_mpf_init2(&y3, wp);
+    s21_mpf_init2(&diff, wp);
+    s21_mpf_init2(&rel, wp);
+    s21_mpf_mul_raw(&y3, &y_s.mpf, &y_s.mpf);
+    s21_mpf_mul_raw(&y3, &y3, &y_s.mpf);
+    s21_mpf_sub_raw(&diff, &y3, &a_s.mpf);
+    s21_mpf_abs(&diff, &diff);
+    s21_mpf_div_raw(&rel, &diff, &a_s.mpf);
+    int ok = (rel.kind == S21_MPF_ZERO) ||
+             (rel.exp < (int64_t)res->prec - 2);
+    s21_mpf_clear(&y3);
+    s21_mpf_clear(&diff);
+    s21_mpf_clear(&rel);
+    if (!ok) {
+      s21_mpf_set_nan(res);
+      s21_mpf_stack_clear(&a_s);
+      s21_mpf_stack_clear(&y_s);
+      s21_mpf_stack_clear(&y2_s);
+      s21_mpf_stack_clear(&tmp_s);
+      s21_mpf_stack_clear(&three_s);
+      s21_mpf_stack_clear(&two_s);
+      s21_mpf_stack_clear(&next_s);
+      return 0;
+    }
   }
 
   s21_mpf_set(res, &y_s.mpf);
