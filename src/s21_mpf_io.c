@@ -182,6 +182,11 @@ int s21_mpf_set_str(s21_mpf_t *x, const char *str, int base) {
     int has_pe_digits = 0;
     while (isdigit((unsigned char)*p)) {
       has_pe_digits = 1;
+      if (p_exp > (INT64_MAX - (*p - '0')) / 10) {
+        s21_mpf_clear(&M);
+        s21_mpf_clear(&bval);
+        return -1;
+      }
       p_exp = p_exp * 10 + (*p - '0');
       p++;
     }
@@ -246,9 +251,17 @@ int s21_mpf_set_str(s21_mpf_t *x, const char *str, int base) {
     s21_mpf_clear(&pb);
   }
 
-  /* Применяем hexfloat-экспоненту: M *= 2^(p_exp).  Точная
-     операция -- мантисса не меняется, только экспонента. */
-  if (has_p_exp) M.exp += p_exp;
+  /* Применяем hexfloat-экспоненту: M *= 2^(p_exp).  Сумма M.exp
+     и p_exp может переполнить int64_t -- обрабатываем явно. */
+  if (has_p_exp) {
+    int64_t new_exp;
+    if (__builtin_add_overflow(M.exp, p_exp, &new_exp)) {
+      s21_mpf_clear(&M);
+      s21_mpf_clear(&bval);
+      return -1;
+    }
+    M.exp = new_exp;
+  }
 
   M.sign = sign;
   s21_mpf_set_round(x, &M, S21_MPF_RNDN);

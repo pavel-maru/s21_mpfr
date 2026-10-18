@@ -4647,6 +4647,31 @@ static void test_hexfloat(void) {
   printf("[ok] hexfloat\n");
 }
 
+static void test_hexfloat_overflow(void) {
+  s21_mpf_t x;
+  s21_mpf_init2(&x, 256);
+
+  /* p-экспонента больше INT64_MAX на этапе накопления */
+  ASSERT(s21_mpf_set_str(&x, "0x1p99999999999999999999", 16) == -1,
+         "hexfloat: p-exp overflow in digits -> -1");
+
+  /* p-экспонента ровно INT64_MAX: накопление OK, но M.exp += p_exp
+     переполняет int64_t */
+  ASSERT(s21_mpf_set_str(&x, "0x1p9223372036854775807", 16) == -1,
+         "hexfloat: M.exp + p_exp overflow -> -1");
+
+  /* Симметрично для отрицательной экспоненты */
+  ASSERT(s21_mpf_set_str(&x, "0x1p-99999999999999999999", 16) == -1,
+         "hexfloat: -p-exp overflow -> -1");
+
+  /* Маленькое p по-прежнему работает */
+  ASSERT(s21_mpf_set_str(&x, "0x1.8p4", 16) == 0,
+         "hexfloat: normal p-exp still works");
+
+  s21_mpf_clear(&x);
+  printf("[ok] hexfloat p-exp overflow\n");
+}
+
 /* ============================================================
    ULP-метрика для трансцендентных функций.
 
@@ -4778,7 +4803,6 @@ int main(void) {
       {"set_d subnormal", test_set_d_subnormal},
       {"special values", test_special},
       {"precisions 2..512", test_precision},
-      { "precisions 2..512", test_precision },
       { "set_ui/si/d rounding", test_set_ui_si_d_rounding },
       { "малые precisions", test_small_prec },
       {"малые precisions", test_small_prec},
@@ -4830,6 +4854,9 @@ int main(void) {
       {"cbrt", test_cbrt},
       {"fma", test_fma},
       {"hexfloat", test_hexfloat},
+      { "hexfloat", test_hexfloat },
+      { "hexfloat p-exp overflow", test_hexfloat_overflow },
+      { "fprint / fprint_d", test_fprint },
       {"ulp diagnostics", test_ulp_diagnostics},
   };
   const size_t n = sizeof(tests) / sizeof(tests[0]);
