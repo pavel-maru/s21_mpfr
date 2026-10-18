@@ -94,12 +94,28 @@ void s21_mpf_set_ui(s21_mpf_t *x, unsigned long v) {
     s21_mpf_set_zero(x, 0);
     return;
   }
-  size_t count = s21_mpf_limbs_for_prec(x->prec);
-  memset(x->limbs, 0, count * sizeof(uint64_t));
-  x->limbs[0] = v;
-  x->sign = 0;
-  x->exp = (int64_t)x->prec;
-  s21_mpf_normalize(x);
+  if (x->prec >= 64) {
+    /* v влезает в prec бит: нормализация сдвигает только влево,
+       усечения нет — старый путь без округления. */
+    size_t count = s21_mpf_limbs_for_prec(x->prec);
+    memset(x->limbs, 0, count * sizeof(uint64_t));
+    x->limbs[0] = v;
+    x->sign = 0;
+    x->exp = (int64_t)x->prec;
+    s21_mpf_normalize(x);
+    return;
+  }
+  /* prec < 64: мантисса v может не влезть, нужно округление по RNDN.
+     Работаем на wp = 64 (v помещается точно), затем сужаем через
+     set_round.  stack_t при wp = 64 = 1 лимб — на стеке, без malloc. */
+  s21_mpf_stack_t tmp;
+  s21_mpf_stack_init(&tmp, 64);
+  tmp.mpf.limbs[0] = v;
+  tmp.mpf.exp = 64;
+  tmp.mpf.kind = S21_MPF_NORMAL;
+  s21_mpf_normalize(&tmp.mpf);
+  s21_mpf_set_round(x, &tmp.mpf, S21_MPF_RNDN);
+  s21_mpf_stack_clear(&tmp);
 }
 
 void s21_mpf_set_si(s21_mpf_t *x, long v) {
@@ -158,14 +174,27 @@ void s21_mpf_set_d(s21_mpf_t *x, double v) {
   int sign_d;
   s21_decompose_double(v, &mant_d, &exp_d, &sign_d);
 
-  size_t count = s21_mpf_limbs_for_prec(x->prec);
-  memset(x->limbs, 0, count * sizeof(uint64_t));
-
-  x->limbs[0] = mant_d;
-  x->sign = sign_d;
-  x->exp = exp_d - 53 + (int64_t)x->prec;
-
-  s21_mpf_normalize(x);
+  if (x->prec >= 53) {
+    /* Мантисса double (53 бита, 52 для субнормальных) точно влезает:
+       нормализация только сдвигает влево. */
+    size_t count = s21_mpf_limbs_for_prec(x->prec);
+    memset(x->limbs, 0, count * sizeof(uint64_t));
+    x->limbs[0] = mant_d;
+    x->sign = sign_d;
+    x->exp = exp_d - 53 + (int64_t)x->prec;
+    s21_mpf_normalize(x);
+    return;
+  }
+  /* prec < 53: 53-битная мантисса не влезает, округляем по RNDN. */
+  s21_mpf_stack_t tmp;
+  s21_mpf_stack_init(&tmp, 53);
+  tmp.mpf.limbs[0] = mant_d;
+  tmp.mpf.exp = exp_d - 53 + 53;
+  tmp.mpf.sign = sign_d;
+  tmp.mpf.kind = S21_MPF_NORMAL;
+  s21_mpf_normalize(&tmp.mpf);
+  s21_mpf_set_round(x, &tmp.mpf, S21_MPF_RNDN);
+  s21_mpf_stack_clear(&tmp);
 }
 
 void s21_mpf_set(s21_mpf_t *dst, const s21_mpf_t *src) {

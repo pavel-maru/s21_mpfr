@@ -152,6 +152,66 @@ static void test_precision(void) {
   printf("[ok] precisions 2..512\n");
 }
 
+static void test_set_ui_si_d_rounding(void) {
+  s21_mpf_t x, e;
+
+  /* set_ui(7, prec=2): RNDN ties-to-even → 8 (не 6) */
+  s21_mpf_init2(&x, 2);
+  s21_mpf_init2(&e, 2);
+  s21_mpf_set_ui(&x, 7);
+  s21_mpf_set_ui(&e, 8);
+  ASSERT(s21_mpf_cmp(&x, &e) == 0, "set_ui(7, prec=2) = 8 (RNDN)");
+  s21_mpf_clear(&x);
+  s21_mpf_clear(&e);
+
+  /* set_ui(5, prec=2): ровно посередине 4 и 6, ties-to-even → 4 */
+  s21_mpf_init2(&x, 2);
+  s21_mpf_init2(&e, 2);
+  s21_mpf_set_ui(&x, 5);
+  s21_mpf_set_ui(&e, 4);
+  ASSERT(s21_mpf_cmp(&x, &e) == 0, "set_ui(5, prec=2) = 4 (tie to even)");
+  s21_mpf_clear(&x);
+  s21_mpf_clear(&e);
+
+  /* set_ui(3, prec=2): представимо точно, без изменений */
+  s21_mpf_init2(&x, 2);
+  s21_mpf_init2(&e, 2);
+  s21_mpf_set_ui(&x, 3);
+  s21_mpf_set_ui(&e, 3);
+  ASSERT(s21_mpf_cmp(&x, &e) == 0, "set_ui(3, prec=2) = 3 (exact)");
+  s21_mpf_clear(&x);
+  s21_mpf_clear(&e);
+
+  /* set_si(-7, prec=2) → -8 */
+  s21_mpf_init2(&x, 2);
+  s21_mpf_init2(&e, 2);
+  s21_mpf_set_si(&x, -7);
+  s21_mpf_set_si(&e, -8);
+  ASSERT(s21_mpf_cmp(&x, &e) == 0, "set_si(-7, prec=2) = -8 (RNDN)");
+  s21_mpf_clear(&x);
+  s21_mpf_clear(&e);
+
+  /* set_d(1.25, prec=2) → 1 (tie to even) */
+  s21_mpf_init2(&x, 2);
+  s21_mpf_init2(&e, 2);
+  s21_mpf_set_d(&x, 1.25);
+  s21_mpf_set_ui(&e, 1);
+  ASSERT(s21_mpf_cmp(&x, &e) == 0, "set_d(1.25, prec=2) = 1");
+  s21_mpf_clear(&x);
+  s21_mpf_clear(&e);
+
+  /* set_d(1.75, prec=2) → 2 (tie to even) */
+  s21_mpf_init2(&x, 2);
+  s21_mpf_init2(&e, 2);
+  s21_mpf_set_d(&x, 1.75);
+  s21_mpf_set_ui(&e, 2);
+  ASSERT(s21_mpf_cmp(&x, &e) == 0, "set_d(1.75, prec=2) = 2");
+  s21_mpf_clear(&x);
+  s21_mpf_clear(&e);
+
+  printf("[ok] set_ui/si/d rounding at low prec\n");
+}
+
 static void test_small_prec(void) {
   s21_mpf_t x, y, z, expected;
 
@@ -4718,6 +4778,9 @@ int main(void) {
       {"set_d subnormal", test_set_d_subnormal},
       {"special values", test_special},
       {"precisions 2..512", test_precision},
+      { "precisions 2..512", test_precision },
+      { "set_ui/si/d rounding", test_set_ui_si_d_rounding },
+      { "малые precisions", test_small_prec },
       {"малые precisions", test_small_prec},
       {"round narrow across limb", test_round_narrow_across_limb_boundary},
       {"cmp / cmp_abs / equal / integer", test_cmp},
