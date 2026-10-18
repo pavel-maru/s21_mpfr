@@ -108,8 +108,7 @@ int s21_mpf_sqrt(s21_mpf_t *res, const s21_mpf_t *x) {
     s21_mpf_sub_raw(&diff, &y2, &a);
     s21_mpf_abs(&diff, &diff);
     s21_mpf_div_raw(&rel, &diff, &a);
-    int ok = (rel.kind == S21_MPF_ZERO) ||
-             (rel.exp < (int64_t)res->prec - 2);
+    int ok = (rel.kind == S21_MPF_ZERO) || (rel.exp < -(int64_t)res->prec + 2);
     s21_mpf_clear(&y2);
     s21_mpf_clear(&diff);
     s21_mpf_clear(&rel);
@@ -803,8 +802,7 @@ int s21_mpf_cbrt(s21_mpf_t *res, const s21_mpf_t *x) {
     s21_mpf_sub_raw(&diff, &y3, &a_s.mpf);
     s21_mpf_abs(&diff, &diff);
     s21_mpf_div_raw(&rel, &diff, &a_s.mpf);
-    int ok = (rel.kind == S21_MPF_ZERO) ||
-             (rel.exp < (int64_t)res->prec - 2);
+    int ok = (rel.kind == S21_MPF_ZERO) || (rel.exp < -(int64_t)res->prec + 2);
     s21_mpf_clear(&y3);
     s21_mpf_clear(&diff);
     s21_mpf_clear(&rel);

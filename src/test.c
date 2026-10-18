@@ -2358,8 +2358,8 @@ static void test_pow_exp_overflow(void) {
      y.exp + lg.exp = INT64_MAX + 2 -- переполнение int64_t. */
   s21_mpf_set_ui(&x, 10);
   s21_mpf_set_ui(&y, 1);
-  s21_mpf_normalize(&y);   /* y.exp = 1, mant = 2^255 */
-  y.exp = INT64_MAX;        /* mant остаётся 2^255, инвариант сохранён */
+  s21_mpf_normalize(&y); /* y.exp = 1, mant = 2^255 */
+  y.exp = INT64_MAX; /* mant остаётся 2^255, инвариант сохранён */
 
   int rc = s21_mpf_pow(&r, &x, &y);
   ASSERT(rc == 0, "pow overflow: rc");
