@@ -1,6 +1,6 @@
 # s21_mpfr
 
-> **Status:** 🟢 **v1.27.1 (2026-10-18).** Финальный релиз.
+> **Status:** 🟢 **v1.27.2 (2026-10-18).** Финальный релиз.
 > Библиотека чисел с плавающей точкой произвольной точности на C11.
 > Проект вдохновлён [MPFR](https://www.mpfr.org/), но реализован
 > с нуля в учебных целях.
@@ -117,7 +117,7 @@
 ### v1.25.0 (2026-10-17)
 
 Sliding window в `pow_ui`.  Один коммит: 248 вставок / 13 удалений
-в двух файлах.  Финальный релиз.
+в двух файлах.
 
 - **`s21_mpf_pow_ui` для `n ≥ 2^16`** использует метод
   скользящего окна вместо бинарного возведения.  Ниже порога —
@@ -228,7 +228,7 @@ code review.  Семантика существующего API не менял�
 Четыре фикса из «известных ограничений» финального code
 review.  Все — только `fix:`, поведение API не меняется
 на нормальных входах; два случая раньше возвращали мусор
-(теперь NaN или корректное значение).
+(`pow` — теперь NaN, `sqrt` / `cbrt` — корректное значение).
 
 - **`fix: set_ui / set_si / set_d`** — округление RNDN при
   `prec < 64` (для `unsigned long`) и `prec < 53` (для `double`).
@@ -1075,7 +1075,8 @@ NULL.
 `test_newton_convergence` — `sqrt(2)` и `cbrt(5)` на
 `prec ∈ {2, 4, 8, …, 4096}`: результат должен быть
 `S21_MPF_NORMAL` (не NaN, не INF, не ZERO).  Проверяет
-post-loop verification, добавленный в v1.27.0.  Точность
+post-loop verification, добавленный в v1.27.0 (порог
+скорректирован в v1.27.1).  Точность
 самого результата проверяется в `test_sqrt`,
 `test_sqrt_edge_cases` и `test_cbrt` — дублировать её
 здесь нет смысла.
@@ -1311,6 +1312,7 @@ stream и NULL `x` — no-op без падения.
 | 60 | `div_raw` OOM; `parse_special` guard; `+inf` bufsize; `fprint`/`fprint_d`; docstring `equal`/`set_str`/`init2` | v1.26.0 | ✅ |
 | 61 | `set_ui`/`set_si`/`set_d` RNDN; `p_exp` overflow; `pow` exp overflow; `sqrt`/`cbrt` verification | v1.27.0 | ✅ |
 | 62 | `sqrt`/`cbrt` verification threshold sign; `MAX_ARG_BITS` comment | v1.27.1 | ✅ |
+| 63 | README: убрано устаревшее «Финальный релиз» в v1.25.0; уточнения в v1.27.0 и `test_newton_convergence` | v1.27.2 | ✅ |
 
 ## Roadmap на будущее
 
