@@ -2348,6 +2348,29 @@ static void test_pow_ui_window(void) {
   printf("[ok] pow_ui windowed (n >= 2^16)\n");
 }
 
+static void test_pow_exp_overflow(void) {
+  s21_mpf_t x, y, r;
+  s21_mpf_init2(&x, 256);
+  s21_mpf_init2(&y, 256);
+  s21_mpf_init2(&r, 256);
+
+  /* y.exp = INT64_MAX, x = 10 (log(10).exp = 2).
+     y.exp + lg.exp = INT64_MAX + 2 -- переполнение int64_t. */
+  s21_mpf_set_ui(&x, 10);
+  s21_mpf_set_ui(&y, 1);
+  s21_mpf_normalize(&y);   /* y.exp = 1, mant = 2^255 */
+  y.exp = INT64_MAX;        /* mant остаётся 2^255, инвариант сохранён */
+
+  int rc = s21_mpf_pow(&r, &x, &y);
+  ASSERT(rc == 0, "pow overflow: rc");
+  ASSERT(s21_mpf_is_nan(&r), "pow(10, y with exp=INT64_MAX) = NaN");
+
+  s21_mpf_clear(&x);
+  s21_mpf_clear(&y);
+  s21_mpf_clear(&r);
+  printf("[ok] pow exp overflow\n");
+}
+
 static void test_root(void) {
   s21_mpf_t x, r, e, diff, thr;
   s21_mpf_init2(&x, 256);
@@ -4833,6 +4856,8 @@ int main(void) {
       {"log2 / log10", test_log2_log10},
       {"pow_ui / pow_si", test_pow_ui_si},
       {"pow_ui windowed", test_pow_ui_window},
+      {"pow exp overflow", test_pow_exp_overflow},
+      { "root", test_root },
       {"root", test_root},
       {"hypot", test_hypot},
       {"sin / cos", test_sin_cos},

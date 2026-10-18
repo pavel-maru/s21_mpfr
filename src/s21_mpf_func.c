@@ -1463,6 +1463,22 @@ int s21_mpf_pow(s21_mpf_t *res, const s21_mpf_t *x, const s21_mpf_t *y) {
   }
 
   s21_mpf_set(&yw_s.mpf, y);
+
+  /* mul_raw считает exp результата как x->exp + y->exp.  Если эта
+     сумма переполняет int64_t, дальнейшая работа даст мусор (и UB
+     в арифметике над exp).  Переполнение возможно, только когда
+     |y| порядка 2^63 -- достижимо лишь при ручной установке y.exp,
+     но лучше вернуть NaN, чем тихо получить неверный результат. */
+  int64_t exp_sum;
+  if (__builtin_add_overflow(yw_s.mpf.exp, lg_s.mpf.exp, &exp_sum)) {
+    s21_mpf_set_nan(res);
+    s21_mpf_stack_clear(&lg_s);
+    s21_mpf_stack_clear(&yw_s);
+    s21_mpf_stack_clear(&ylg_s);
+    s21_mpf_stack_clear(&r_s);
+    return 0;
+  }
+
   s21_mpf_mul_raw(&ylg_s.mpf, &yw_s.mpf, &lg_s.mpf);
   s21_mpf_exp(&r_s.mpf, &ylg_s.mpf);
 
