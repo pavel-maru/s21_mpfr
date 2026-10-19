@@ -1317,6 +1317,33 @@ static void test_exp(void) {
   printf("[ok] exp\n");
 }
 
+static void test_exp_huge_arg(void) {
+  s21_mpf_t x, r;
+  s21_mpf_init2(&x, 256);
+  s21_mpf_init2(&r, 256);
+
+  /* x.exp = INT64_MAX - 100: недостижимо через set_str / set_d,
+     только ручная установка.  Без guard внутри exp ряд Тейлора
+     многократно умножает term на y, и term.exp + y.exp
+     переполняет int64_t (UB). */
+  s21_mpf_set_ui(&x, 1);
+  x.exp = INT64_MAX - 100;
+  int rc = s21_mpf_exp(&r, &x);
+  ASSERT(rc == 0, "exp huge positive: rc");
+  ASSERT(s21_mpf_is_inf(&r) && r.sign == 0, "exp(+huge) = +inf");
+
+  s21_mpf_set_ui(&x, 1);
+  x.exp = INT64_MAX - 100;
+  x.sign = 1;
+  rc = s21_mpf_exp(&r, &x);
+  ASSERT(rc == 0, "exp huge negative: rc");
+  ASSERT(s21_mpf_is_zero(&r), "exp(-huge) = +0");
+
+  s21_mpf_clear(&x);
+  s21_mpf_clear(&r);
+  printf("[ok] exp huge arg\n");
+}
+
 static void test_log(void) {
   s21_mpf_t a, l, expected, diff, threshold;
   s21_mpf_init2(&a, 256);
@@ -4884,6 +4911,7 @@ int main(void) {
       {"sqrt", test_sqrt},
       {"sqrt edge cases", test_sqrt_edge_cases},
       {"exp", test_exp},
+      {"exp huge arg", test_exp_huge_arg},
       {"log", test_log},
       {"exp/log extremes", test_exp_log_extremes},
       {"pi", test_pi},

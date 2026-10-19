@@ -231,6 +231,19 @@ int s21_mpf_exp(s21_mpf_t *res, const s21_mpf_t *x) {
     return 0;
   }
 
+  /* exp(x) при x.exp > INT64_MAX / 4: x по модулю > 2^(INT64_MAX/4 - 1),
+     внутри ряда Тейлора mul_raw(&term, &term, &y) при многократном
+     умножении переполнит term.exp.  Через публичное API такое
+     значение недостижимо -- только ручная установка x.exp.
+     Поведение: exp(+huge) = +inf, exp(-huge) = +0. */
+  if (x->exp > (INT64_MAX >> 2)) {
+    if (x->sign == 0)
+      s21_mpf_set_inf(res, 0);
+    else
+      s21_mpf_set_zero(res, 0);
+    return 0;
+  }
+
   uint32_t wp = res->prec + 64;
   s21_mpf_t a, y, sum, term;
   s21_mpf_init2(&a, wp);
